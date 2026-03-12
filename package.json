@@ -1,0 +1,15 @@
+{
+  "name": "content-curation",
+  "version": "1.0.0",
+  "description": "每日内容策展自动化工作流",
+  "type": "module",
+  "scripts": {
+    "rewrite": "node scripts/rewrite.js",
+    "sync": "node scripts/sync-feishu.js"
+  },
+  "dependencies": {
+    "openai": "^4.0.0",
+    "js-yaml": "^4.1.0",
+    "dotenv": "^16.0.0"
+  }
+}

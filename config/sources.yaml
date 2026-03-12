@@ -1,0 +1,20 @@
+# 订阅源配置
+# 修改为你实际订阅的频道/播客
+
+youtube:
+  - id: UCxxxxxxxxxxxxxxxxxxxxxx        # 频道 ID（在频道页面 URL 或关于页面中找到）
+    name: "示例 YouTube 频道"
+    url: "https://www.youtube.com/@example"
+    limit: 5                             # 每次检查最近几条
+
+# bilibili:
+#   - id: "12345678"                     # UP主 UID（在主页 URL 中）
+#     name: "示例 UP 主"
+#     url: "https://space.bilibili.com/12345678"
+#     limit: 5
+
+# xiaoyuzhou:
+#   - id: "example_podcast"              # 播客标识符（自定义，用于状态去重）
+#     name: "示例播客"
+#     rss_url: "https://feeds.example.com/podcast.xml"
+#     limit: 10

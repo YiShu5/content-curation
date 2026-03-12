@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block title %}{{ article.title }} · 降噪{% endblock %}
+
+{% block content %}
+<article class="detail-page">
+    <!-- 顶部大封面 Hero -->
+    <div class="detail-hero">
+        {% if article.cover_token %}
+        <img src="/cover/{{ article.cover_token }}" alt="{{ article.title }}" class="detail-hero-img">
+        {% endif %}
+        <div class="detail-hero-overlay"></div>
+        <div class="detail-hero-content">
+            <div class="detail-hero-tags">
+                <span class="hero-tag">{{ article.platform }}</span>
+            </div>
+            <h1 class="detail-hero-title">{{ article.title }}</h1>
+            <div class="detail-hero-meta">
+                {% if article.creator %}
+                <span class="hero-meta-item">
+                    <span class="hero-avatar">{{ article.creator[0] }}</span>
+                    {{ article.creator }}
+                </span>
+                {% endif %}
+                {% if article.pub_date %}
+                <span class="hero-meta-sep">·</span>
+                <span class="hero-meta-item">{{ article.pub_date }}</span>
+                {% endif %}
+                {% if article.duration %}
+                <span class="hero-meta-sep">·</span>
+                <span class="hero-meta-item">{{ article.duration }} 分钟</span>
+                {% endif %}
+                {% if article.link %}
+                <span class="hero-meta-sep">·</span>
+                <a href="{{ article.link }}" target="_blank" class="hero-platform-link">{{ article.platform }} ↗</a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- 正文区域：侧边栏 + 内容 -->
+    <div class="detail-layout">
+        <!-- 左侧导航 -->
+        <aside class="detail-sidebar">
+            <a href="/" class="sidebar-back">← 返回首页</a>
+            <nav class="sidebar-nav">
+                {% if article.key_quotes %}
+                <a href="#quotes" class="sidebar-link">🔥 金句精选</a>
+                {% endif %}
+                {% if article.guests %}
+                <a href="#guests" class="sidebar-link">👤 嘉宾</a>
+                {% endif %}
+                {% if article.core_ideas %}
+                <a href="#ideas" class="sidebar-link">💡 核心观点</a>
+                {% endif %}
+                <a href="#summary" class="sidebar-link">📝 深度摘要</a>
+                {% if article.original_title and article.original_title != article.title %}
+                <div class="sidebar-info">
+                    <span class="sidebar-label">原标题</span>
+                    <p class="sidebar-text">{{ article.original_title }}</p>
+                </div>
+                {% endif %}
+            </nav>
+        </aside>
+
+        <!-- 右侧主内容 -->
+        <div class="detail-main">
+            {% if article.key_quotes %}
+            <section id="quotes" class="detail-section">
+                <h2 class="section-title"><span class="section-icon">🗣</span> 金句精选</h2>
+                <div class="quotes-box">
+                    {% for q in article.key_quotes %}
+                    <blockquote class="quote-item">{{ q }}</blockquote>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
+
+            {% if article.guests %}
+            <section id="guests" class="detail-section">
+                <h2 class="section-title"><span class="section-icon">👤</span> 嘉宾</h2>
+                <p class="guests-text">{{ article.guests }}</p>
+            </section>
+            {% endif %}
+
+            {% if article.core_ideas %}
+            <section id="ideas" class="detail-section">
+                <h2 class="section-title"><span class="section-icon">💡</span> 核心观点</h2>
+                <ul class="ideas-list">
+                    {% for idea in article.core_ideas %}
+                    <li>{{ idea }}</li>
+                    {% endfor %}
+                </ul>
+            </section>
+            {% endif %}
+
+            {% if article.key_insights %}
+            <section class="detail-section">
+                <h2 class="section-title"><span class="section-icon">🔍</span> 关键洞察</h2>
+                <div class="insights-box">
+                    {{ article.key_insights | replace('\n', '<br>') | safe }}
+                </div>
+            </section>
+            {% endif %}
+
+            <section id="summary" class="detail-section">
+                <h2 class="section-title-large">深度摘要</h2>
+                <div class="summary-content">
+                    {{ article.summary | replace('\n', '<br>') | safe }}
+                </div>
+            </section>
+
+            {% if article.link %}
+            <div class="detail-source">
+                <a href="{{ article.link }}" target="_blank" rel="noopener">查看原始内容 →</a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</article>
+{% endblock %}

@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}降噪 · 精选内容策展{% endblock %}
+
+{% block hero %}
+<section class="hero">
+    <h1 class="hero-title">降噪</h1>
+    <p class="hero-desc">精选+AI生成，帮你从海量信息中过滤噪音。</p>
+    <p class="hero-highlight"><strong>5 分钟</strong> 获取 优质访谈里的深度洞察。</p>
+</section>
+{% endblock %}
+
+{% block content %}
+<section class="card-grid">
+    {% if not records %}
+    <div class="empty-state">
+        <p>暂无内容，请先通过工作流抓取并同步到飞书。</p>
+    </div>
+    {% endif %}
+
+    {% for r in records %}
+    <a href="/article/{{ r.id }}" class="card" target="_blank">
+        <div class="card-cover">
+            {% if r.cover_token %}
+            <img src="/cover/{{ r.cover_token }}" alt="{{ r.title }}" loading="lazy">
+            {% else %}
+            <div class="card-cover-placeholder"></div>
+            {% endif %}
+            <div class="card-cover-badges">
+                {% if r.creator %}
+                <span class="badge-creator">
+                    <span class="badge-avatar">{{ r.creator[0] }}</span>
+                    {{ r.creator[:12] }}
+                </span>
+                {% endif %}
+                {% if r.platform %}
+                <span class="badge-platform {{ r.platform | lower }}">{{ r.platform }} ↗</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="card-tags">
+                <span class="tag">{{ r.platform }}</span>
+                {% if r.guests %}
+                <span class="tag tag-guest">+{{ r.guests.split('、') | length }}</span>
+                {% endif %}
+                <span class="card-date">{{ r.pub_date }}</span>
+            </div>
+            <h2 class="card-title">{{ r.title }}</h2>
+            {% if r.creator %}
+            <p class="card-creator">
+                <span class="creator-avatar">{{ r.creator[0] }}</span>
+                {{ r.creator }}
+            </p>
+            {% endif %}
+            {% if r.summary %}
+            <p class="card-quote">"{{ r.summary[:80] }}{% if r.summary|length > 80 %}…{% endif %}"</p>
+            {% endif %}
+        </div>
+    </a>
+    {% endfor %}
+</section>
+{% endblock %}
