@@ -107,8 +107,9 @@
             {% if article.guests %}
             <div class="d-guests">
                 <span class="d-section-label">👤 嘉宾</span>
-                <span class="d-guests-text">{{ article.guests }}</span>
+                <span class="d-guests-text d-guest-trigger" id="guest-trigger">{{ article.guests }}</span>
             </div>
+            <div class="d-guest-tooltip" id="guest-tooltip"></div>
             {% endif %}
 
             <!-- 金句精选 -->
@@ -140,7 +141,6 @@
 
             <!-- 深度摘要 -->
             <section>
-                <h2 class="d-section-title">📝 深度摘要</h2>
                 <div class="d-prose" id="article-prose">
                     {% if article.summary_md %}
                     {{ article.summary_md | markdown | safe }}
@@ -150,32 +150,263 @@
                 </div>
             </section>
 
-            {% if article.link %}
-            <div class="d-source">
-                <a href="{{ article.link }}" target="_blank" rel="noopener">查看原始内容 →</a>
-            </div>
-            {% endif %}
-
         </main>
+
+        {% if article.link %}
+        <div class="d-source">
+            <a href="{{ article.link }}" target="_blank" rel="noopener">查看原始内容 →</a>
+        </div>
+        {% endif %}
     </div>
 </div>
 
 <script>
-// 自动生成目录
+// 嘉宾气泡 tooltip
+(function () {
+    const trigger = document.getElementById('guest-trigger');
+    const tooltip = document.getElementById('guest-tooltip');
+    if (!trigger || !tooltip) return;
+
+    // 移到 body 末尾，确保脱离任何 overflow 容器
+    document.body.appendChild(tooltip);
+
+    const guestName = trigger.textContent.trim();
+    const prose = document.getElementById('article-prose');
+    if (!prose) return;
+    const text = prose.innerText;
+    const sentences = text.split(/[。！？\n]/).filter(s => s.includes(guestName));
+    let bio = '';
+    const seen = new Set();
+    for (const s of sentences) {
+        const clean = s.trim();
+        if (clean.length < 10 || clean.length > 150) continue;
+        if (seen.has(clean)) continue;
+        seen.add(clean);
+        bio += clean + '。';
+        if (bio.length > 200) break;
+    }
+    if (!bio) bio = guestName + '，本期节目嘉宾。';
+    tooltip.innerHTML = '<div class="d-guest-bubble-arrow"></div><div class="d-guest-bubble-name">' + guestName + '</div><div class="d-guest-bubble-bio">' + bio + '</div>';
+
+    function positionTooltip() {
+        const rect = trigger.getBoundingClientRect();
+        const tw = tooltip.offsetWidth;
+        const th = tooltip.offsetHeight;
+        // 优先放右边
+        let left = rect.right + 12;
+        let top = rect.top + rect.height / 2 - th / 2;
+        let arrowSide = 'left';
+
+        // 如果右边放不下，放左边
+        if (left + tw > window.innerWidth - 16) {
+            left = rect.left - tw - 12;
+            arrowSide = 'right';
+        }
+        // 如果左边也放不下，放下面
+        if (left < 16) {
+            left = rect.left;
+            top = rect.bottom + 10;
+            arrowSide = 'top';
+        }
+        // 垂直越界修正
+        if (top < 8) top = 8;
+        if (top + th > window.innerHeight - 8) top = window.innerHeight - th - 8;
+
+        tooltip.style.left = left + 'px';
+        tooltip.style.top = top + 'px';
+        tooltip.dataset.arrow = arrowSide;
+    }
+
+    trigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const willShow = !tooltip.classList.contains('active');
+        tooltip.classList.toggle('active');
+        if (willShow) positionTooltip();
+    });
+
+    window.addEventListener('scroll', () => {
+        if (tooltip.classList.contains('active')) positionTooltip();
+    }, { passive: true });
+    window.addEventListener('resize', () => {
+        if (tooltip.classList.contains('active')) positionTooltip();
+    });
+
+    document.addEventListener('click', () => {
+        tooltip.classList.remove('active');
+    });
+    tooltip.addEventListener('click', (e) => e.stopPropagation());
+})();
+
+// 把 d-prose 里每个 h2 下面的内容包进暖色背景块
 (function () {
     const prose = document.getElementById('article-prose');
+    if (!prose) return;
+    const h2s = prose.querySelectorAll('h2');
+    h2s.forEach(h2 => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'd-prose-section';
+        // 收集 h2 后面的兄弟节点，直到遇到下一个 h2
+        let next = h2.nextSibling;
+        while (next && !(next.nodeType === 1 && next.tagName === 'H2')) {
+            const curr = next;
+            next = next.nextSibling;
+            // 跳过空白文本节点，避免影响 :first-child
+            if (curr.nodeType === 3 && !curr.textContent.trim()) continue;
+            wrapper.appendChild(curr);
+        }
+        h2.after(wrapper);
+    });
+})();
+
+// 给「核心论点」下的 h3 加上编号标签
+(function () {
+    const nums = ['一','二','三','四','五','六','七','八','九','十'];
+    const prose = document.getElementById('article-prose');
+    if (!prose) return;
+    // 找到「核心论点」对应的 h2，然后取其后的 d-prose-section 里的 h3
+    prose.querySelectorAll('h2').forEach(h2 => {
+        if (!h2.textContent.includes('核心论点')) return;
+        const section = h2.nextElementSibling;
+        if (!section || !section.classList.contains('d-prose-section')) return;
+        section.querySelectorAll('h3').forEach((h3, i) => {
+            // 去掉原文中可能已有的「论点X：」前缀
+            h3.innerHTML = h3.innerHTML.replace(/^论点[一二三四五六七八九十\d]+[：:]\s*/, '');
+            const tag = document.createElement('span');
+            tag.className = 'd-arg-tag';
+            tag.textContent = '论点' + (nums[i] || (i + 1));
+            h3.insertBefore(tag, h3.firstChild);
+        });
+    });
+})();
+
+// 给「关键案例 / 数据」下的 li 开头 strong 转为圆角标签，并套用核心观点布局
+(function () {
+    const prose = document.getElementById('article-prose');
+    if (!prose) return;
+    prose.querySelectorAll('h2').forEach(h2 => {
+        if (!h2.textContent.includes('关键案例')) return;
+        const section = h2.nextElementSibling;
+        if (!section || !section.classList.contains('d-prose-section')) return;
+        // 把 ul 提升为 d-ideas-list 布局，去掉外层背景避免重叠
+        section.style.background = 'none';
+        section.style.border = 'none';
+        section.style.padding = '0';
+        section.style.margin = '0';
+        section.style.overflow = 'visible';
+        // 去掉 ::before 伪元素的左侧色条
+        section.classList.remove('d-prose-section');
+        section.classList.add('d-prose-section-plain');
+        section.querySelectorAll('ul').forEach(ul => {
+            ul.classList.add('d-ideas-list');
+        });
+        section.querySelectorAll('li').forEach(li => {
+            const strong = li.querySelector('strong:first-child');
+            if (!strong) return;
+            const tag = document.createElement('span');
+            tag.className = 'd-arg-tag';
+            tag.textContent = strong.textContent;
+            const after = strong.nextSibling;
+            if (after && after.nodeType === 3 && /^[：:]/.test(after.textContent)) {
+                after.textContent = after.textContent.replace(/^[：:]\s*/, '');
+            }
+            strong.replaceWith(tag);
+        });
+    });
+})();
+
+// 把「结论与行动框架」中嵌在 <p> 里的编号列表转为有序列表（保留在同一卡片内）
+(function () {
+    const prose = document.getElementById('article-prose');
+    if (!prose) return;
+    prose.querySelectorAll('h2').forEach(h2 => {
+        if (!h2.textContent.includes('结论与行动框架')) return;
+        const section = h2.nextElementSibling;
+        if (!section) return;
+        section.querySelectorAll('p').forEach(p => {
+            const html = p.innerHTML;
+            if (!/\d+\.\s{1,2}<strong>/.test(html)) return;
+            const parts = html.split(/(?=\d+\.\s{1,2}<strong>)/);
+            const ol = document.createElement('ol');
+            ol.className = 'd-action-list';
+            let introHtml = '';
+            parts.forEach(part => {
+                const trimmed = part.trim();
+                if (!trimmed) return;
+                if (!/^\d+\.\s{1,2}<strong>/.test(trimmed)) {
+                    introHtml = trimmed;
+                    return;
+                }
+                const li = document.createElement('li');
+                let content = trimmed.replace(/^\d+\.\s{1,2}/, '');
+                const m = content.match(/^<strong>(.+?)<\/strong>[：:]\s*/);
+                if (m) {
+                    content = content.replace(/^<strong>.+?<\/strong>[：:]\s*/, '');
+                    const tag = document.createElement('span');
+                    tag.className = 'd-arg-tag';
+                    tag.textContent = m[1];
+                    li.appendChild(tag);
+                }
+                const span = document.createElement('span');
+                span.innerHTML = content;
+                li.appendChild(span);
+                ol.appendChild(li);
+            });
+            if (ol.children.length > 0) {
+                if (introHtml) {
+                    const introP = document.createElement('p');
+                    introP.innerHTML = introHtml;
+                    p.before(introP);
+                }
+                p.replaceWith(ol);
+            }
+        });
+    });
+})();
+
+// 自动生成目录 — 只保留指定的 4 个条目
+(function () {
     const nav = document.getElementById('toc-nav');
     const toc = document.getElementById('toc');
-    if (!prose || !nav) return;
+    if (!nav) return;
 
-    const headings = prose.querySelectorAll('h2, h3');
-    if (headings.length < 2) { toc.style.display = 'none'; return; }
+    // emoji → 文字的完整映射
+    const displayMap = {
+        '金句精选':     ['🗣', '金句精选'],
+        '核心观点':     ['💡', '核心观点'],
+        '核心论点':     ['🎯', '核心论点'],
+        '结论与行动框架': ['🧭', '结论与行动框架'],
+    };
+    const allowedTitles = Object.keys(displayMap);
 
-    headings.forEach((h, i) => {
-        if (!h.id) h.id = 'sec-' + i;
+    // 收集所有 section 标题（页面级 h2 + 深度摘要内 h2/h3）
+    const allHeadings = document.querySelectorAll('.d-section-title, #article-prose h2, #article-prose h3');
+    const matched = [];
+
+    allHeadings.forEach((h, i) => {
+        const text = h.textContent.replace(/^[\s\u200b]+|[\s\u200b]+$/g, '');
+        // 检查标题文本是否包含任一允许项
+        const hit = allowedTitles.some(t => text.includes(t));
+        if (!hit) return;
+        if (!h.id) h.id = 'toc-sec-' + i;
+        matched.push(h);
+    });
+
+    if (matched.length === 0) { toc.style.display = 'none'; return; }
+
+    matched.forEach(h => {
         const a = document.createElement('a');
         a.href = '#' + h.id;
-        a.textContent = h.textContent;
+        // 找到对应的 emoji + 文字
+        const raw = h.textContent.replace(/^[\s\u200b]+|[\s\u200b]+$/g, '');
+        const key = allowedTitles.find(t => raw.includes(t));
+        const [emoji, label] = displayMap[key] || ['', raw];
+        const emojiSpan = document.createElement('span');
+        emojiSpan.className = 'toc-emoji';
+        emojiSpan.textContent = emoji;
+        const labelSpan = document.createElement('span');
+        labelSpan.textContent = label;
+        a.appendChild(emojiSpan);
+        a.appendChild(labelSpan);
         a.className = 'toc-link toc-' + h.tagName.toLowerCase();
         nav.appendChild(a);
     });
@@ -192,7 +423,7 @@
         });
     }, { rootMargin: '-20% 0px -70% 0px' });
 
-    headings.forEach(h => obs.observe(h));
+    matched.forEach(h => obs.observe(h));
 })();
 </script>
 {% endblock %}

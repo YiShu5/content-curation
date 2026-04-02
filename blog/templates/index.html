@@ -71,7 +71,6 @@
             {% set preview = r.summary | strip_md %}
             {% if preview %}
             <div class="card-insight">
-                <span class="card-insight-label">AI 摘要</span>
                 <p class="card-insight-text">{{ preview[:100] }}{% if preview|length > 100 %}…{% endif %}</p>
             </div>
             {% endif %}

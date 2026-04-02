@@ -187,6 +187,9 @@ def index():
     except Exception as e:
         records = []
         print(f"[ERROR] 获取数据失败: {e}")
+    # 用本地 archive 的中文标题覆盖可能的英文标题
+    for r in records:
+        _enrich_from_local(r)
     # 只保留实际有内容的话题
     used_topics = [t for t in TOPICS if any(r.get("topic") == t for r in records)]
     return render_template("index.html", records=records, topics=used_topics)
@@ -227,6 +230,10 @@ def _enrich_from_local(article):
     _build_local_index()
     meta = _local_index_cache["index"].get(article["id"])
     if meta:
+        # 优先使用本地中文标题（防止飞书中存的是英文标题）
+        cn_title = meta.get("chinese_title", "")
+        if cn_title and cn_title != article.get("title"):
+            article["title"] = cn_title
         article["key_quotes"] = meta.get("key_quotes", [])
         article["core_ideas"] = meta.get("core_ideas", [])
         article["key_insights"] = meta.get("key_insights", "")
