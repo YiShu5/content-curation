@@ -10,10 +10,56 @@ from pathlib import Path
 import requests
 from flask import Flask, render_template, abort, Response
 
+import re as _re
+
+try:
+    import markdown as _md_lib
+    def _render_markdown(text):
+        return _md_lib.markdown(text or '', extensions=['extra'])
+except ImportError:
+    def _render_markdown(text):
+        return (text or '').replace('\n', '<br>')
+
+def _strip_markdown(text):
+    """剥除 Markdown 符号，返回纯文本（用于摘要预览）"""
+    if not text:
+        return ''
+    t = text
+    t = _re.sub(r'#{1,6}\s+', '', t)           # 标题
+    t = _re.sub(r'\*\*(.+?)\*\*', r'\1', t)    # 粗体
+    t = _re.sub(r'\*(.+?)\*', r'\1', t)        # 斜体
+    t = _re.sub(r'`{3}[\s\S]*?`{3}', '', t)    # 代码块
+    t = _re.sub(r'`(.+?)`', r'\1', t)          # 行内代码
+    t = _re.sub(r'^\s*[-*+]\s+', '', t, flags=_re.MULTILINE)  # 无序列表
+    t = _re.sub(r'^\s*\d+\.\s+', '', t, flags=_re.MULTILINE)  # 有序列表
+    t = _re.sub(r'\[(.+?)\]\(.+?\)', r'\1', t) # 链接
+    t = _re.sub(r'^>\s*', '', t, flags=_re.MULTILINE)  # 引用
+    t = _re.sub(r'\n{2,}', ' ', t)             # 多行变空格
+    t = _re.sub(r'\n', ' ', t)
+    return t.strip()
+
+# 优先加载项目根目录的 config/.env（开发环境无需手动设置系统变量）
+_env_path = Path(__file__).parent.parent / "config" / ".env"
+if _env_path.exists():
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(_env_path)
+    except ImportError:
+        pass  # dotenv 未安装时跳过，依赖系统环境变量
+
 from config import Config
 
 app = Flask(__name__)
 app.config.from_object(Config)
+app.jinja_env.filters['markdown'] = _render_markdown
+app.jinja_env.filters['strip_md'] = _strip_markdown
+
+# 启动时检查必要配置
+_missing = [k for k in ("FEISHU_APP_ID", "FEISHU_APP_SECRET", "BASE_ID", "TABLE_ID")
+            if not app.config.get(k)]
+if _missing:
+    import sys
+    print(f"[ERROR] 缺少飞书配置项: {', '.join(_missing)}，请检查 config/.env", file=sys.stderr)
 
 # ── 飞书 API ──────────────────────────────────────────────────────────────
 _token_cache = {"token": "", "expiry": 0}
@@ -28,6 +74,7 @@ def get_access_token():
             "app_id": app.config["FEISHU_APP_ID"],
             "app_secret": app.config["FEISHU_APP_SECRET"],
         },
+        timeout=15,
     )
     data = resp.json()
     if data.get("code") != 0:
@@ -62,7 +109,7 @@ def fetch_records():
         if page_token:
             params["page_token"] = page_token
 
-        resp = requests.get(url, headers=headers, params=params)
+        resp = requests.get(url, headers=headers, params=params, timeout=15)
         data = resp.json()
 
         if data.get("code") != 0:
@@ -105,6 +152,7 @@ def fetch_records():
                 "guests": _text_value(fields.get("嘉宾", "")),
                 "summary": _text_value(fields.get("深度摘要", "")),
                 "cover_token": cover_token,
+                "topic": _text_value(fields.get("话题", "")),
             })
 
         if not data.get("data", {}).get("has_more"):
@@ -129,6 +177,9 @@ def _text_value(field):
 
 
 # ── 路由 ──────────────────────────────────────────────────────────────────
+TOPICS = ['AI 编程', 'AI 产品', 'AI 创业', 'AI 商业', '投资', '个人效率', '其他']
+
+
 @app.route("/")
 def index():
     try:
@@ -136,14 +187,24 @@ def index():
     except Exception as e:
         records = []
         print(f"[ERROR] 获取数据失败: {e}")
-    return render_template("index.html", records=records)
+    # 只保留实际有内容的话题
+    used_topics = [t for t in TOPICS if any(r.get("topic") == t for r in records)]
+    return render_template("index.html", records=records, topics=used_topics)
 
 
-def _enrich_from_local(article):
-    """从本地 archive 的 metadata.json 补充金句、核心观点等详细数据"""
+# 本地 archive 索引缓存：{ feishu_record_id -> metadata dict }
+_local_index_cache = {"index": {}, "expiry": 0}
+
+
+def _build_local_index():
+    now = time.time()
+    if _local_index_cache["index"] and now < _local_index_cache["expiry"]:
+        return
     archive_root = Path(__file__).parent.parent / "archive"
     if not archive_root.exists():
-        return article
+        _local_index_cache["expiry"] = now + app.config["CACHE_TTL"]
+        return
+    index = {}
     for d in archive_root.iterdir():
         if not d.is_dir():
             continue
@@ -152,15 +213,39 @@ def _enrich_from_local(article):
             continue
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            if meta.get("feishu_record_id") == article["id"]:
-                article["key_quotes"] = meta.get("key_quotes", [])
-                article["core_ideas"] = meta.get("core_ideas", [])
-                article["key_insights"] = meta.get("key_insights", "")
-                if not article["guests"] and meta.get("guests"):
-                    article["guests"] = "、".join(meta["guests"])
-                return article
+            rid = meta.get("feishu_record_id")
+            if rid:
+                index[rid] = meta
         except Exception:
             continue
+    _local_index_cache["index"] = index
+    _local_index_cache["expiry"] = now + app.config["CACHE_TTL"]
+
+
+def _enrich_from_local(article):
+    """从本地 archive 的 metadata.json 补充金句、核心观点、评分等详细数据"""
+    _build_local_index()
+    meta = _local_index_cache["index"].get(article["id"])
+    if meta:
+        article["key_quotes"] = meta.get("key_quotes", [])
+        article["core_ideas"] = meta.get("core_ideas", [])
+        article["key_insights"] = meta.get("key_insights", "")
+        article["summary_md"] = meta.get("deep_summary", "")
+        article["why_watch"] = meta.get("why_watch", "")
+        article["score_total"] = meta.get("score_total")
+        article["score_verdict"] = meta.get("score_verdict", "")
+        article["scores"] = meta.get("scores", {})
+        if not article["guests"] and meta.get("guests"):
+            article["guests"] = "、".join(meta["guests"])
+    else:
+        article.setdefault("key_quotes", [])
+        article.setdefault("core_ideas", [])
+        article.setdefault("key_insights", "")
+        article.setdefault("summary_md", "")
+        article.setdefault("why_watch", "")
+        article.setdefault("score_total", None)
+        article.setdefault("score_verdict", "")
+        article.setdefault("scores", {})
     return article
 
 

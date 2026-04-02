@@ -11,7 +11,19 @@
 {% endblock %}
 
 {% block content %}
-<section class="card-grid">
+
+{% if topics %}
+<div class="topic-filter-wrap">
+    <div class="topic-filter">
+        <button class="topic-btn active" data-topic="">全部</button>
+        {% for t in topics %}
+        <button class="topic-btn" data-topic="{{ t }}">{{ t }}</button>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<section class="card-grid" id="card-grid">
     {% if not records %}
     <div class="empty-state">
         <p>暂无内容，请先通过工作流抓取并同步到飞书。</p>
@@ -19,7 +31,7 @@
     {% endif %}
 
     {% for r in records %}
-    <a href="/article/{{ r.id }}" class="card" target="_blank">
+    <a href="/article/{{ r.id }}" class="card" target="_blank" data-topic="{{ r.topic or '' }}">
         <div class="card-cover">
             {% if r.cover_token %}
             <img src="/cover/{{ r.cover_token }}" alt="{{ r.title }}" loading="lazy">
@@ -41,8 +53,11 @@
         <div class="card-body">
             <div class="card-tags">
                 <span class="tag">{{ r.platform }}</span>
-                {% if r.guests %}
-                <span class="tag tag-guest">+{{ r.guests.split('、') | length }}</span>
+                {% if r.topic %}
+                <span class="tag tag-topic">{{ r.topic }}</span>
+                {% endif %}
+                {% if r.guests and r.guests.strip() %}
+                <span class="tag tag-guest">+{{ r.guests.split('、') | select | list | length }}</span>
                 {% endif %}
                 <span class="card-date">{{ r.pub_date }}</span>
             </div>
@@ -53,11 +68,32 @@
                 {{ r.creator }}
             </p>
             {% endif %}
-            {% if r.summary %}
-            <p class="card-quote">"{{ r.summary[:80] }}{% if r.summary|length > 80 %}…{% endif %}"</p>
+            {% set preview = r.summary | strip_md %}
+            {% if preview %}
+            <div class="card-insight">
+                <span class="card-insight-label">AI 摘要</span>
+                <p class="card-insight-text">{{ preview[:100] }}{% if preview|length > 100 %}…{% endif %}</p>
+            </div>
             {% endif %}
         </div>
     </a>
     {% endfor %}
 </section>
+
+<script>
+(function () {
+    const btns = document.querySelectorAll('.topic-btn');
+    const cards = document.querySelectorAll('#card-grid .card');
+    btns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            btns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const topic = btn.dataset.topic;
+            cards.forEach(card => {
+                card.style.display = (!topic || card.dataset.topic === topic) ? '' : 'none';
+            });
+        });
+    });
+})();
+</script>
 {% endblock %}

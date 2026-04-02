@@ -78,7 +78,7 @@ async function callAI(prompt) {
     model: MODEL,
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.3,
-    max_tokens: 4096,
+    max_tokens: 8192,
   };
 
   // Try with json_object format first (OpenAI supports this)
@@ -100,21 +100,40 @@ async function callAI(prompt) {
 }
 
 // ── 解析 AI 输出 ───────────────────────────────────────────────────────────
+function extractFirstJsonObject(str) {
+  // 用括号计数器找到第一个完整的 JSON 对象，避免贪婪正则跨越多个对象
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < str.length; i++) {
+    if (str[i] === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (str[i] === '}') {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        return str.slice(start, i + 1);
+      }
+    }
+  }
+  return null;
+}
+
 function parseAIResponse(raw) {
   if (!raw) throw new Error('AI 返回了空内容');
 
-  // Remove markdown code fences if present
+  // 去掉 markdown 代码块标记
   let cleaned = raw.trim();
-  cleaned = cleaned.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '').trim();
+  cleaned = cleaned.replace(/^```(?:json)?\s*/m, '').replace(/\s*```$/m, '').trim();
 
+  // 先尝试整体解析
   try {
     return JSON.parse(cleaned);
   } catch {
-    // Try to extract JSON object with regex
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if (match) {
+    // 提取第一个完整 JSON 对象
+    const extracted = extractFirstJsonObject(cleaned);
+    if (extracted) {
       try {
-        return JSON.parse(match[0]);
+        return JSON.parse(extracted);
       } catch {}
     }
     throw new Error(`无法解析 AI 输出为 JSON:\n${raw.slice(0, 500)}`);
@@ -122,6 +141,32 @@ function parseAIResponse(raw) {
 }
 
 // ── 写入输出文件 ───────────────────────────────────────────────────────────
+function formatScores(scores) {
+  if (!scores) return '';
+  const s = scores;
+  const verdict = s.verdict || '';
+  const total = s.total ?? '—';
+  const verdictLine = `**综合评分：${total}/100　${verdict}**`;
+
+  const dims = [
+    { label: 'AI 相关性', key: 'ai_relevance', max: 40 },
+    { label: '故事性',   key: 'storytelling',  max: 30 },
+    { label: '加分项',   key: 'bonus',          max: 30 },
+  ];
+
+  const rows = dims.map(d => {
+    const dim = s[d.key] || {};
+    const score = dim.score ?? '—';
+    const reason = dim.reason || '';
+    const items = d.key === 'bonus' && dim.items?.length
+      ? `（${dim.items.join('、')}）`
+      : '';
+    return `| ${d.label} | ${score}/${d.max} | ${reason}${items} |`;
+  });
+
+  return `\n## 内容评分\n\n${verdictLine}\n\n| 维度 | 得分 | 评分依据 |\n|------|------|----------|\n${rows.join('\n')}\n`;
+}
+
 function writeRewrittenMd(archiveDir, result, metadata) {
   const today = new Date().toISOString().slice(0, 10);
   const platformLabel = {
@@ -135,8 +180,10 @@ function writeRewrittenMd(archiveDir, result, metadata) {
     .map(idea => `- ${idea}`)
     .join('\n');
 
-  const content = `# ${result.chinese_title || metadata.title}
+  const scoresSection = formatScores(result.scores);
 
+  const content = `# ${result.chinese_title || metadata.title}
+${scoresSection}
 ## 核心观点
 
 ${coreIdeas || '- （无）'}
@@ -174,6 +221,19 @@ function writeMetadataMd(archiveDir, result, metadata) {
     .map(q => `> "${q}"`)
     .join('\n\n');
 
+  // 评分区块
+  const sc = result.scores || {};
+  const scoreLine = sc.total != null
+    ? `**综合评分**: ${sc.total}/100　${sc.verdict || ''}`
+    : '';
+  const scoreDetail = sc.total != null ? `
+| 维度 | 得分 | 依据 |
+|------|------|------|
+| AI 相关性 | ${sc.ai_relevance?.score ?? '—'}/40 | ${sc.ai_relevance?.reason || ''} |
+| 故事性 | ${sc.storytelling?.score ?? '—'}/30 | ${sc.storytelling?.reason || ''} |
+| 加分项 | ${sc.bonus?.score ?? '—'}/30 | ${sc.bonus?.reason || ''}${sc.bonus?.items?.length ? `（${sc.bonus.items.join('、')}）` : ''} |
+` : '';
+
   const content = `# ${result.chinese_title || metadata.title}
 
 **原标题**: ${metadata.title}
@@ -182,7 +242,8 @@ function writeMetadataMd(archiveDir, result, metadata) {
 **原始链接**: ${metadata.url}
 **处理时间**: ${metadata.processed_at || new Date().toISOString()}
 **时长**: ${durationDisplay}
-
+${scoreLine}
+${scoreDetail}
 ## 嘉宾
 
 ${guests}
@@ -202,11 +263,16 @@ function updateMetadataJson(archiveDir, result) {
   const updated = {
     ...meta,
     chinese_title: result.chinese_title || meta.title,
+    topic: result.topic || '',
+    why_watch: result.why_watch || '',
     guests: result.guests || [],
     key_quotes: result.key_quotes || [],
     core_ideas: result.core_ideas || [],
     key_insights: result.key_insights || '',
     deep_summary: result.deep_summary || '',
+    scores: result.scores || null,
+    score_total: result.scores?.total ?? null,
+    score_verdict: result.scores?.verdict ?? null,
     rewrite_complete: true,
     rewritten_at: new Date().toISOString(),
   };
@@ -260,17 +326,32 @@ async function main() {
     const updated = updateMetadataJson(resolvedDir, result);
 
     console.log(`  [完成] 标题: "${updated.chinese_title}"`);
+    if (result.scores?.total != null) {
+      const sc = result.scores;
+      console.log(`  评分: ${sc.total}/100 (${sc.verdict})  AI相关性:${sc.ai_relevance?.score}  故事性:${sc.storytelling?.score}  加分项:${sc.bonus?.score}`);
+    }
     if (result.guests?.length) {
       console.log(`  嘉宾: ${result.guests.join('、')}`);
     }
 
   } catch (err) {
-    // Save error details for debugging
+    const now = new Date().toISOString();
+    // 写独立错误文件便于调试
     const errorPath = path.join(resolvedDir, 'rewrite_error.json');
     fs.writeFileSync(errorPath, JSON.stringify({
       error: err.message,
-      timestamp: new Date().toISOString(),
+      timestamp: now,
     }, null, 2), 'utf-8');
+    // 同时更新 metadata.json，让状态一目了然
+    const metaPath = path.join(resolvedDir, 'metadata.json');
+    if (fs.existsSync(metaPath)) {
+      try {
+        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+        meta.rewrite_error = err.message;
+        meta.rewrite_failed_at = now;
+        fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf-8');
+      } catch {}
+    }
     console.error(`  [ERROR] ${err.message}`);
     process.exit(1);
   }

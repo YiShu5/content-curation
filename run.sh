@@ -10,19 +10,20 @@ usage() {
   echo "用法: ./run.sh <命令> [选项]"
   echo ""
   echo "命令:"
-  echo "  batch [--limit N]        扫描所有订阅源，列出新内容供选择处理（默认5条/源）"
+  echo "  auto [--limit N]         【定时任务用】全自动：抓取→改写→同步，无需人工干预"
+  echo "  batch [--limit N]        扫描所有订阅源，列出新内容供交互选择"
   echo "  url <URL> [URL2 ...]     直接处理指定 URL，无需确认"
   echo "  rewrite <archive_dir>    对已归档内容重新运行 AI 改写"
   echo "  sync                     将已改写但未同步的内容推送到飞书多维表格"
-  echo "  all [--limit N]          执行 batch，完成后自动执行 sync"
+  echo "  sync-doc [archive_dir]   将已改写内容创建为飞书文档（长文阅读视图）"
+  echo "  all [--limit N]          执行 batch（交互），完成后同步多维表格 + 飞书文档"
   echo ""
   echo "示例:"
+  echo "  ./run.sh auto                         # 每日定时任务用这个"
+  echo "  ./run.sh auto --limit 3"
   echo "  ./run.sh batch"
-  echo "  ./run.sh batch --limit 10"
   echo "  ./run.sh url https://www.youtube.com/watch?v=xxxxxxx"
-  echo "  ./run.sh rewrite archive/20260312-some-title"
   echo "  ./run.sh sync"
-  echo "  ./run.sh all --limit 3"
   echo ""
 }
 
@@ -30,6 +31,18 @@ CMD="${1:-}"
 shift || true
 
 case "$CMD" in
+  auto)
+    echo "=== [自动模式] $(date '+%Y-%m-%d %H:%M:%S') 开始 ==="
+    python scripts/fetch.py --batch --auto "$@"
+    echo ""
+    echo "--- 同步到飞书多维表格 ---"
+    node scripts/sync-feishu.js
+    echo ""
+    echo "--- 同步到飞书文档 ---"
+    node scripts/sync-feishu-doc.js
+    echo ""
+    echo "=== 完成 $(date '+%Y-%m-%d %H:%M:%S') ==="
+    ;;
   batch)
     python scripts/fetch.py --batch "$@"
     ;;
@@ -52,12 +65,19 @@ case "$CMD" in
   sync)
     node scripts/sync-feishu.js
     ;;
+  sync-doc)
+    node scripts/sync-feishu-doc.js "$@"
+    ;;
   all)
-    python scripts/fetch.py --batch "$@"
+    python scripts/fetch.py --batch --auto "$@"
     echo ""
-    echo "批量处理完成，开始同步到飞书..."
+    echo "批量处理完成，开始同步到飞书多维表格..."
     echo ""
     node scripts/sync-feishu.js
+    echo ""
+    echo "开始同步到飞书文档..."
+    echo ""
+    node scripts/sync-feishu-doc.js
     ;;
   -h|--help|help)
     usage

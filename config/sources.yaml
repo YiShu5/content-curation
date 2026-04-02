@@ -1,20 +1,53 @@
 # 订阅源配置
-# 修改为你实际订阅的频道/播客
+# 把你想追踪的频道/播客填进来，./run.sh auto 会自动处理新内容
+#
+# YouTube: url 填频道的 /videos 页面地址（@handle 或 /channel/UC... 均可）
+# Bilibili: id 填 UP 主的数字 UID（space.bilibili.com/{id} 里的数字）
+# 小宇宙: rss_url 在「播客详情页 → 分享 → 复制 RSS」里找
 
 youtube:
-  - id: UCxxxxxxxxxxxxxxxxxxxxxx        # 频道 ID（在频道页面 URL 或关于页面中找到）
-    name: "示例 YouTube 频道"
-    url: "https://www.youtube.com/@example"
-    limit: 5                             # 每次检查最近几条
+  - name: "Y Combinator"
+    url: "https://www.youtube.com/@ycombinator/videos"
+    limit: 3
 
-# bilibili:
-#   - id: "12345678"                     # UP主 UID（在主页 URL 中）
-#     name: "示例 UP 主"
-#     url: "https://space.bilibili.com/12345678"
-#     limit: 5
+  - name: "Lex Fridman"
+    url: "https://www.youtube.com/@lexfridman/videos"
+    limit: 2
 
-# xiaoyuzhou:
-#   - id: "example_podcast"              # 播客标识符（自定义，用于状态去重）
-#     name: "示例播客"
-#     rss_url: "https://feeds.example.com/podcast.xml"
-#     limit: 10
+  - name: "a16z"
+    url: "https://www.youtube.com/@a16z/videos"
+    limit: 3
+
+  # - name: "Acquired"
+  #   url: "https://www.youtube.com/@acquiredfm/videos"
+  #   limit: 2
+
+  # - name: "All-In Podcast"
+  #   url: "https://www.youtube.com/@alaboratory/videos"
+  #   limit: 2
+
+bilibili:
+  # Bilibili 抓取需要 cookies 或代理，否则会被 412 风控
+  # 如果有 cookies 可通过 yt-dlp --cookies 参数解决
+  # - name: "硬地骇客"
+  #   id: "287894508"
+  #   limit: 3
+
+  # - name: "林亦LYi"
+  #   id: "504905092"
+  #   limit: 3
+
+  # - name: "影视飓风"
+  #   id: "946974"
+  #   limit: 2
+
+xiaoyuzhou:
+  # - name: "硅谷101"
+  #   id: "guigu101"
+  #   rss_url: "https://feed.xyzfm.space/xxxxxxxx"
+  #   limit: 3
+
+  # - name: "科技乱炖"
+  #   id: "kejilundun"
+  #   rss_url: "https://feed.xyzfm.space/xxxxxxxx"
+  #   limit: 3

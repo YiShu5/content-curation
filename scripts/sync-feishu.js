@@ -12,9 +12,10 @@ import * as dotenv from 'dotenv';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.join(__dirname, '..');
 const CONFIG_DIR = path.join(PROJECT_ROOT, 'config');
-const ARCHIVE_DIR = path.join(PROJECT_ROOT, process.env.ARCHIVE_DIR || 'archive');
 
 dotenv.config({ path: path.join(CONFIG_DIR, '.env') });
+
+const ARCHIVE_DIR = path.join(PROJECT_ROOT, process.env.ARCHIVE_DIR || 'archive');
 
 const FEISHU_BASE = 'https://open.feishu.cn';
 const APP_ID = process.env.FEISHU_APP_ID;
@@ -22,16 +23,40 @@ const APP_SECRET = process.env.FEISHU_APP_SECRET;
 const APP_TOKEN = process.env.FEISHU_APP_TOKEN;
 const TABLE_ID = process.env.FEISHU_TABLE_ID;
 
+// ── 带超时 + 限速重试的 fetch 封装 ──────────────────────────────────────────
+async function feishuFetch(url, options = {}, { timeout = 30000, retries = 3 } = {}) {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+      const resp = await fetch(url, { ...options, signal: controller.signal });
+      if (resp.status === 429) {
+        const wait = (attempt + 1) * 3000;
+        console.warn(`  [WARN] 飞书 API 频率限制，${wait / 1000}s 后重试...`);
+        await new Promise(r => setTimeout(r, wait));
+        continue;
+      }
+      return resp;
+    } catch (err) {
+      if (err.name === 'AbortError') throw new Error(`飞书 API 请求超时 (${timeout}ms): ${url}`);
+      if (attempt === retries - 1) throw err;
+      await new Promise(r => setTimeout(r, 1000));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw new Error('飞书 API 多次重试后仍失败');
+}
+
 // ── Token 管理 ─────────────────────────────────────────────────────────────
 let _tokenCache = { token: '', expiry: 0 };
 
 async function getAccessToken() {
-  // Refresh if token expires within 60s
   if (_tokenCache.token && Date.now() < _tokenCache.expiry - 60000) {
     return _tokenCache.token;
   }
 
-  const resp = await fetch(`${FEISHU_BASE}/open-apis/auth/v3/app_access_token/internal/`, {
+  const resp = await feishuFetch(`${FEISHU_BASE}/open-apis/auth/v3/app_access_token/internal/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ app_id: APP_ID, app_secret: APP_SECRET }),
@@ -75,14 +100,18 @@ async function uploadCoverImage(token, imagePath) {
     const fileName = path.basename(imagePath);
     const fileSize = fileBuffer.length;
 
+    const ext = path.extname(imagePath).toLowerCase();
+    const mimeMap = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' };
+    const mimeType = mimeMap[ext] || 'image/jpeg';
+
     const formData = new FormData();
     formData.append('file_name', fileName);
     formData.append('parent_type', 'bitable_image');
     formData.append('parent_node', APP_TOKEN);
     formData.append('size', String(fileSize));
-    formData.append('file', new Blob([fileBuffer], { type: 'image/jpeg' }), fileName);
+    formData.append('file', new Blob([fileBuffer], { type: mimeType }), fileName);
 
-    const resp = await fetch(`${FEISHU_BASE}/open-apis/drive/v1/medias/upload_all`, {
+    const resp = await feishuFetch(`${FEISHU_BASE}/open-apis/drive/v1/medias/upload_all`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
       body: formData,
@@ -98,6 +127,24 @@ async function uploadCoverImage(token, imagePath) {
     console.warn(`  [WARN] 封面上传异常: ${err.message}`);
     return null;
   }
+}
+
+// ── Markdown 纯文本提取 ────────────────────────────────────────────────────
+function stripMarkdown(text) {
+  if (!text) return '';
+  return text
+    .replace(/#{1,6}\s+/gm, '')           // 标题
+    .replace(/\*\*(.+?)\*\*/gs, '$1')     // 粗体
+    .replace(/\*(.+?)\*/gs, '$1')         // 斜体
+    .replace(/`{3}[\s\S]*?`{3}/g, '')     // 代码块
+    .replace(/`(.+?)`/g, '$1')            // 行内代码
+    .replace(/^\s*[-*+]\s+/gm, '')        // 无序列表
+    .replace(/^\s*\d+\.\s+/gm, '')        // 有序列表
+    .replace(/\[(.+?)\]\(.+?\)/g, '$1')   // 链接
+    .replace(/^>\s*/gm, '')               // 引用
+    .replace(/^-{3,}$/gm, '')             // 分割线
+    .replace(/\n{3,}/g, '\n\n')           // 多余空行
+    .trim();
 }
 
 // ── 构建表格记录 ───────────────────────────────────────────────────────────
@@ -118,7 +165,22 @@ function buildBitableRecord(metadata, fileToken) {
     '时长（分钟）': Math.round((metadata.duration || 0) / 60),
     '嘉宾': (metadata.guests || []).join('、'),
     '深度摘要': metadata.deep_summary || '',
+    '摘要纯文本': stripMarkdown(metadata.deep_summary),
   };
+
+  if (metadata.topic) {
+    record['话题'] = metadata.topic;
+  }
+
+  // 评分字段
+  if (metadata.score_total != null) {
+    record['总分'] = metadata.score_total;
+    record['评级'] = metadata.score_verdict || '';
+    const sc = metadata.scores || {};
+    if (sc.ai_relevance?.score != null) record['AI相关性'] = sc.ai_relevance.score;
+    if (sc.storytelling?.score != null) record['故事性'] = sc.storytelling.score;
+    if (sc.bonus?.score != null) record['加分项'] = sc.bonus.score;
+  }
 
   // Date field (Feishu requires ms timestamp)
   const ts = feishuTimestamp(metadata.upload_date);
@@ -135,7 +197,7 @@ function buildBitableRecord(metadata, fileToken) {
 // ── 创建 Bitable 记录 ──────────────────────────────────────────────────────
 async function createBitableRecord(token, fields) {
   const url = `${FEISHU_BASE}/open-apis/bitable/v1/apps/${APP_TOKEN}/tables/${TABLE_ID}/records`;
-  const resp = await fetch(url, {
+  const resp = await feishuFetch(url, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -149,6 +211,62 @@ async function createBitableRecord(token, fields) {
     throw new Error(`创建 Bitable 记录失败: ${JSON.stringify(data)}`);
   }
   return data.data?.record?.record_id;
+}
+
+// ── 确保"摘要纯文本"字段存在 ──────────────────────────────────────────────
+async function ensureSummaryTextField(token) {
+  const url = `${FEISHU_BASE}/open-apis/bitable/v1/apps/${APP_TOKEN}/tables/${TABLE_ID}/fields`;
+  const resp = await feishuFetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await resp.json();
+  if (data.code !== 0) return;
+
+  const exists = (data.data?.items || []).some(f => f.field_name === '摘要纯文本');
+  if (exists) return;
+
+  console.log('  创建字段：摘要纯文本...');
+  const createResp = await feishuFetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ field_name: '摘要纯文本', type: 1 }),
+  });
+  const createData = await createResp.json();
+  if (createData.code === 0) {
+    console.log('  字段创建成功');
+  } else {
+    console.warn(`  [WARN] 字段创建失败: ${JSON.stringify(createData)}`);
+  }
+}
+
+// ── 确保"话题"单选字段存在 ────────────────────────────────────────────────
+const TOPIC_OPTIONS = ['AI 编程', 'AI 产品', 'AI 创业', 'AI 商业', '投资', '个人效率', '其他'];
+
+async function ensureTopicField(token) {
+  const url = `${FEISHU_BASE}/open-apis/bitable/v1/apps/${APP_TOKEN}/tables/${TABLE_ID}/fields`;
+  const resp = await feishuFetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await resp.json();
+  if (data.code !== 0) return;
+
+  const exists = (data.data?.items || []).some(f => f.field_name === '话题');
+  if (exists) return;
+
+  console.log('  创建字段：话题（单选）...');
+  const createResp = await feishuFetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      field_name: '话题',
+      type: 3,  // 单选
+      property: {
+        options: TOPIC_OPTIONS.map(name => ({ name })),
+      },
+    }),
+  });
+  const createData = await createResp.json();
+  if (createData.code === 0) {
+    console.log('  话题字段创建成功');
+  } else {
+    console.warn(`  [WARN] 话题字段创建失败: ${JSON.stringify(createData)}`);
+  }
 }
 
 // ── 扫描未同步条目 ─────────────────────────────────────────────────────────
@@ -207,6 +325,14 @@ async function main() {
   } catch (err) {
     console.error(`[ERROR] ${err.message}`);
     process.exit(1);
+  }
+
+  // 确保字段存在
+  try {
+    await ensureSummaryTextField(token);
+    await ensureTopicField(token);
+  } catch (err) {
+    console.warn(`  [WARN] 检查字段失败: ${err.message}`);
   }
 
   let ok = 0, fail = 0;

@@ -2,91 +2,135 @@
 
 {% block title %}{{ article.title }} · 降噪{% endblock %}
 
+{% block extra_head %}
+<style>
+.site-header { border-bottom: none; }
+</style>
+{% endblock %}
+
 {% block content %}
-<article class="detail-page">
-    <!-- 顶部大封面 Hero -->
-    <div class="detail-hero">
+<div class="detail-page">
+
+    <!-- ── Hero ── -->
+    <div class="d-hero">
         {% if article.cover_token %}
-        <img src="/cover/{{ article.cover_token }}" alt="{{ article.title }}" class="detail-hero-img">
+        <img src="/cover/{{ article.cover_token }}" alt="{{ article.title }}" class="d-hero-img">
         {% endif %}
-        <div class="detail-hero-overlay"></div>
-        <div class="detail-hero-content">
-            <div class="detail-hero-tags">
-                <span class="hero-tag">{{ article.platform }}</span>
+        <div class="d-hero-overlay"></div>
+        <div class="d-hero-body">
+            <div class="d-hero-meta">
+                {% if article.topic %}<span class="d-badge d-badge-topic">{{ article.topic }}</span>{% endif %}
             </div>
-            <h1 class="detail-hero-title">{{ article.title }}</h1>
-            <div class="detail-hero-meta">
+            <h1 class="d-hero-title">{{ article.title }}</h1>
+            <div class="d-hero-info">
                 {% if article.creator %}
-                <span class="hero-meta-item">
-                    <span class="hero-avatar">{{ article.creator[0] }}</span>
-                    {{ article.creator }}
-                </span>
+                <span class="d-hero-avatar">{{ article.creator[0] }}</span>
+                <span>{{ article.creator }}</span>
                 {% endif %}
-                {% if article.pub_date %}
-                <span class="hero-meta-sep">·</span>
-                <span class="hero-meta-item">{{ article.pub_date }}</span>
-                {% endif %}
-                {% if article.duration %}
-                <span class="hero-meta-sep">·</span>
-                <span class="hero-meta-item">{{ article.duration }} 分钟</span>
-                {% endif %}
-                {% if article.link %}
-                <span class="hero-meta-sep">·</span>
-                <a href="{{ article.link }}" target="_blank" class="hero-platform-link">{{ article.platform }} ↗</a>
-                {% endif %}
+                {% if article.pub_date %}<span class="d-sep">·</span><span>{{ article.pub_date }}</span>{% endif %}
+                {% if article.duration %}<span class="d-sep">·</span><span>{{ article.duration }} 分钟</span>{% endif %}
             </div>
+            {% if article.link %}
+            <a href="{{ article.link }}" target="_blank" class="d-hero-link">{{ article.platform }} ↗</a>
+            {% endif %}
         </div>
     </div>
 
-    <!-- 正文区域：侧边栏 + 内容 -->
-    <div class="detail-layout">
-        <!-- 左侧导航 -->
-        <aside class="detail-sidebar">
-            <a href="/" class="sidebar-back">← 返回首页</a>
-            <nav class="sidebar-nav">
-                {% if article.key_quotes %}
-                <a href="#quotes" class="sidebar-link">🔥 金句精选</a>
-                {% endif %}
-                {% if article.guests %}
-                <a href="#guests" class="sidebar-link">👤 嘉宾</a>
-                {% endif %}
-                {% if article.core_ideas %}
-                <a href="#ideas" class="sidebar-link">💡 核心观点</a>
-                {% endif %}
-                <a href="#summary" class="sidebar-link">📝 深度摘要</a>
-                {% if article.original_title and article.original_title != article.title %}
-                <div class="sidebar-info">
-                    <span class="sidebar-label">原标题</span>
-                    <p class="sidebar-text">{{ article.original_title }}</p>
-                </div>
-                {% endif %}
-            </nav>
+    <!-- ── 两栏布局 ── -->
+    <div class="d-layout">
+
+        <!-- 左侧边栏 -->
+        <aside class="d-sidebar">
+            <a href="/" class="d-back">← 返回首页</a>
+
+            <div class="d-toc" id="toc">
+                <div class="d-toc-header">目录导航</div>
+                <nav class="d-toc-nav" id="toc-nav">
+                    <!-- JS 动态生成 -->
+                </nav>
+            </div>
         </aside>
 
         <!-- 右侧主内容 -->
-        <div class="detail-main">
+        <main class="d-main">
+
+            <!-- 为什么值得看 -->
+            {% if article.why_watch or article.key_insights %}
+            <div class="d-pitch">
+                <p class="d-pitch-text">{{ article.why_watch or (article.key_insights | strip_md)[:150] }}</p>
+            </div>
+            {% endif %}
+
+            <!-- 评分卡片 -->
+            {% if article.score_total is not none %}
+            {% set total = article.score_total %}
+            {% set sc = article.scores %}
+            <div class="d-score-card">
+                <div class="d-score-left">
+                    <div class="d-score-num">{{ total }}<span class="d-score-denom">/100</span></div>
+                    <div class="d-score-verdict">
+                        {%- if total >= 90 %}🔥 必读
+                        {%- elif total >= 75 %}⭐ 强烈推荐
+                        {%- elif total >= 60 %}👍 推荐
+                        {%- elif total >= 45 %}😐 一般
+                        {%- else %}⏭️ 可跳过
+                        {%- endif %}
+                    </div>
+                </div>
+                <div class="d-score-bars">
+                    {% if sc.ai_relevance %}
+                    <div class="d-bar-row">
+                        <span class="d-bar-label">🤖 AI相关性</span>
+                        <div class="d-bar-track"><div class="d-bar-fill" style="width:{{ (sc.ai_relevance.score/40*100)|int }}%;background:#3B82F6"></div></div>
+                        <span class="d-bar-val">{{ sc.ai_relevance.score }}<small>/40</small></span>
+                    </div>
+                    {% endif %}
+                    {% if sc.storytelling %}
+                    <div class="d-bar-row">
+                        <span class="d-bar-label">📖 故事性</span>
+                        <div class="d-bar-track"><div class="d-bar-fill" style="width:{{ (sc.storytelling.score/30*100)|int }}%;background:#8B5CF6"></div></div>
+                        <span class="d-bar-val">{{ sc.storytelling.score }}<small>/30</small></span>
+                    </div>
+                    {% endif %}
+                    {% if sc.bonus %}
+                    <div class="d-bar-row">
+                        <span class="d-bar-label">✨ 加分项</span>
+                        <div class="d-bar-track"><div class="d-bar-fill" style="width:{{ (sc.bonus.score/30*100)|int }}%;background:#10B981"></div></div>
+                        <span class="d-bar-val">{{ sc.bonus.score }}<small>/30</small></span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- 嘉宾 -->
+            {% if article.guests %}
+            <div class="d-guests">
+                <span class="d-section-label">👤 嘉宾</span>
+                <span class="d-guests-text">{{ article.guests }}</span>
+            </div>
+            {% endif %}
+
+            <!-- 金句精选 -->
             {% if article.key_quotes %}
-            <section id="quotes" class="detail-section">
-                <h2 class="section-title"><span class="section-icon">🗣</span> 金句精选</h2>
-                <div class="quotes-box">
+            <section>
+                <h2 class="d-section-title">🗣 金句精选</h2>
+                <div class="d-quotes-list">
                     {% for q in article.key_quotes %}
-                    <blockquote class="quote-item">{{ q }}</blockquote>
+                    <div class="d-quote-item">
+                        <span class="d-quote-mark">"</span>
+                        <p class="d-quote-text">{{ q }}</p>
+                    </div>
                     {% endfor %}
                 </div>
             </section>
             {% endif %}
 
-            {% if article.guests %}
-            <section id="guests" class="detail-section">
-                <h2 class="section-title"><span class="section-icon">👤</span> 嘉宾</h2>
-                <p class="guests-text">{{ article.guests }}</p>
-            </section>
-            {% endif %}
-
+            <!-- 核心观点 -->
             {% if article.core_ideas %}
-            <section id="ideas" class="detail-section">
-                <h2 class="section-title"><span class="section-icon">💡</span> 核心观点</h2>
-                <ul class="ideas-list">
+            <section>
+                <h2 class="d-section-title">💡 核心观点</h2>
+                <ul class="d-ideas-list">
                     {% for idea in article.core_ideas %}
                     <li>{{ idea }}</li>
                     {% endfor %}
@@ -94,28 +138,61 @@
             </section>
             {% endif %}
 
-            {% if article.key_insights %}
-            <section class="detail-section">
-                <h2 class="section-title"><span class="section-icon">🔍</span> 关键洞察</h2>
-                <div class="insights-box">
-                    {{ article.key_insights | replace('\n', '<br>') | safe }}
-                </div>
-            </section>
-            {% endif %}
-
-            <section id="summary" class="detail-section">
-                <h2 class="section-title-large">深度摘要</h2>
-                <div class="summary-content">
-                    {{ article.summary | replace('\n', '<br>') | safe }}
+            <!-- 深度摘要 -->
+            <section>
+                <h2 class="d-section-title">📝 深度摘要</h2>
+                <div class="d-prose" id="article-prose">
+                    {% if article.summary_md %}
+                    {{ article.summary_md | markdown | safe }}
+                    {% else %}
+                    {{ article.summary | e | replace('\n', '<br>') | safe }}
+                    {% endif %}
                 </div>
             </section>
 
             {% if article.link %}
-            <div class="detail-source">
+            <div class="d-source">
                 <a href="{{ article.link }}" target="_blank" rel="noopener">查看原始内容 →</a>
             </div>
             {% endif %}
-        </div>
+
+        </main>
     </div>
-</article>
+</div>
+
+<script>
+// 自动生成目录
+(function () {
+    const prose = document.getElementById('article-prose');
+    const nav = document.getElementById('toc-nav');
+    const toc = document.getElementById('toc');
+    if (!prose || !nav) return;
+
+    const headings = prose.querySelectorAll('h2, h3');
+    if (headings.length < 2) { toc.style.display = 'none'; return; }
+
+    headings.forEach((h, i) => {
+        if (!h.id) h.id = 'sec-' + i;
+        const a = document.createElement('a');
+        a.href = '#' + h.id;
+        a.textContent = h.textContent;
+        a.className = 'toc-link toc-' + h.tagName.toLowerCase();
+        nav.appendChild(a);
+    });
+
+    // 滚动高亮
+    const links = nav.querySelectorAll('.toc-link');
+    const obs = new IntersectionObserver(entries => {
+        entries.forEach(e => {
+            if (e.isIntersecting) {
+                links.forEach(l => l.classList.remove('active'));
+                const active = nav.querySelector('[href="#' + e.target.id + '"]');
+                if (active) active.classList.add('active');
+            }
+        });
+    }, { rootMargin: '-20% 0px -70% 0px' });
+
+    headings.forEach(h => obs.observe(h));
+})();
+</script>
 {% endblock %}

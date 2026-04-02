@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "rewrite": "node scripts/rewrite.js",
-    "sync": "node scripts/sync-feishu.js"
+    "sync": "node scripts/sync-feishu.js",
+    "sync-doc": "node scripts/sync-feishu-doc.js"
   },
   "dependencies": {
     "openai": "^4.0.0",

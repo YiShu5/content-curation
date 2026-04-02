@@ -34,6 +34,10 @@ load_dotenv(CONFIG_DIR / ".env")
 BIBIGPT_TOKEN = os.getenv("BIBIGPT_API_TOKEN", "")
 ARCHIVE_DIR = PROJECT_ROOT / os.getenv("ARCHIVE_DIR", "./archive")
 
+# 国内 API（BibiGPT）需要直连，不走代理；海外 API 走系统代理
+_no_proxy_session = requests.Session()
+_no_proxy_session.trust_env = False
+
 
 # ── 数据结构 ──────────────────────────────────────────────────────────────
 @dataclass
@@ -82,11 +86,13 @@ def _ydl_to_item(entry: dict, platform: str) -> VideoItem | None:
     if platform == "youtube" and not url.startswith("http"):
         url = f"https://www.youtube.com/watch?v={vid_id}"
     elif platform == "bilibili" and not url.startswith("http"):
-        url = f"https://www.bilibili.com/video/{vid_id}"
+        bv_id = re.sub(r'_p\d+$', '', vid_id)
+        url = f"https://www.bilibili.com/video/{bv_id}"
     upload_date = entry.get("upload_date") or entry.get("timestamp", "")
-    if isinstance(upload_date, int):
+    if isinstance(upload_date, (int, float)):
         upload_date = datetime.datetime.fromtimestamp(upload_date).strftime("%Y%m%d")
-    thumbnail = entry.get("thumbnail") or entry.get("thumbnails", [{}])[-1].get("url", "") if entry.get("thumbnails") else entry.get("thumbnail", "")
+    thumbnails = entry.get("thumbnails") or []
+    thumbnail = entry.get("thumbnail") or (thumbnails[-1].get("url", "") if thumbnails else "")
     return VideoItem(
         id=vid_id,
         url=url,
@@ -236,6 +242,29 @@ def fetch_single_url(url: str) -> VideoItem | None:
 
 
 # ── 转录获取 ──────────────────────────────────────────────────────────────
+def _parse_detail_segments(detail) -> str:
+    """将 BibiGPT 返回的字幕段列表拼接成纯文本，格式：[HH:MM:SS] text"""
+    if not isinstance(detail, list) or not detail:
+        return ""
+    lines = []
+    for seg in detail:
+        if not isinstance(seg, dict):
+            continue
+        text = seg.get("text") or seg.get("content") or seg.get("subtitle") or ""
+        if not text:
+            continue
+        start = seg.get("start") or seg.get("startTime") or seg.get("time") or 0
+        try:
+            start = float(start)
+        except (TypeError, ValueError):
+            start = 0.0
+        h = int(start) // 3600
+        m = (int(start) % 3600) // 60
+        s = int(start) % 60
+        lines.append(f"[{h:02d}:{m:02d}:{s:02d}] {text}")
+    return "\n".join(lines)
+
+
 def get_transcript_bibigpt(url: str) -> str:
     """通过 BibiGPT API 获取原始转录文本"""
     if not BIBIGPT_TOKEN or BIBIGPT_TOKEN == "your_bibigpt_token_here":
@@ -245,7 +274,7 @@ def get_transcript_bibigpt(url: str) -> str:
     params = {"url": url, "audioLanguage": "zh"}
     for attempt in range(3):
         try:
-            resp = requests.get(api_url, headers=headers, params=params, timeout=120)
+            resp = _no_proxy_session.get(api_url, headers=headers, params=params, timeout=120)
             resp.raise_for_status()
             data = resp.json()
             # BibiGPT may return {"subtitle": "..."} or {"data": {"subtitle": "..."}}
@@ -343,8 +372,8 @@ def download_thumbnail(url: str, dest: Path) -> bool:
 
 
 # ── 核心处理 ──────────────────────────────────────────────────────────────
-def process_item(item: VideoItem) -> bool:
-    """处理单个内容项，返回 True 表示成功"""
+def process_item(item: VideoItem) -> bool | None:
+    """处理单个内容项，返回 True=完全成功, False=异常失败, None=转录失败可重试"""
     print(f"\n处理: {item.title[:60]}")
     try:
         # 1. 创建归档目录
@@ -381,12 +410,13 @@ def process_item(item: VideoItem) -> bool:
 
         # 3. 写 transcript.md
         transcript_path = archive_dir / "transcript.md"
-        date_display = f"{item.upload_date[:4]}-{item.upload_date[4:6]}-{item.upload_date[6:8]}" if len(item.upload_date) >= 8 else item.upload_date
+        safe_title = (item.title or "").replace('"', '\\"')
+        safe_uploader = (item.uploader or "").replace('"', '\\"')
         transcript_content = f"""---
-source_url: {item.url}
+source_url: "{item.url}"
 platform: {item.platform}
-uploader: {item.uploader}
-title: {item.title}
+uploader: "{safe_uploader}"
+title: "{safe_title}"
 upload_date: "{item.upload_date}"
 duration: {item.duration}
 fetched_at: "{datetime.datetime.utcnow().isoformat()}Z"
@@ -416,6 +446,9 @@ transcript_source: {transcript_source or 'none'}
             "rewrite_complete": False,
             "feishu_synced": False,
             "feishu_record_id": None,
+            "feishu_doc_synced": False,
+            "feishu_doc_id": None,
+            "feishu_doc_url": None,
         }
         meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -437,6 +470,7 @@ transcript_source: {transcript_source or 'none'}
                     print(f"       {result.stderr[:300]}")
         else:
             print("  [跳过] 无转录文本，跳过 AI 改写")
+            return None  # 转录失败，不写入 state，下次可重试
 
         return True
 
@@ -503,16 +537,16 @@ def cmd_batch(args):
 
     all_items: list[VideoItem] = []
 
-    for cfg in sources.get("youtube", []):
-        items = fetch_youtube_channel(cfg, limit)
+    for cfg in sources.get("youtube") or []:
+        items = fetch_youtube_channel(cfg, cfg.get("limit", limit))
         all_items.extend(items)
 
-    for cfg in sources.get("bilibili", []):
-        items = fetch_bilibili_up(cfg, limit)
+    for cfg in sources.get("bilibili") or []:
+        items = fetch_bilibili_up(cfg, cfg.get("limit", limit))
         all_items.extend(items)
 
-    for cfg in sources.get("xiaoyuzhou", []):
-        items = fetch_xiaoyuzhou_rss(cfg, limit)
+    for cfg in sources.get("xiaoyuzhou") or []:
+        items = fetch_xiaoyuzhou_rss(cfg, cfg.get("limit", limit))
         all_items.extend(items)
 
     # Filter already processed
@@ -522,21 +556,29 @@ def cmd_batch(args):
         print("\n没有新内容需要处理。")
         return
 
-    to_process = batch_confirm(new_items)
+    auto = getattr(args, 'auto', False)
+    if auto:
+        to_process = new_items
+        print(f"\n[AUTO] 自动处理全部 {len(new_items)} 条新内容")
+    else:
+        to_process = batch_confirm(new_items)
     if not to_process:
         return
 
-    ok, fail = 0, 0
+    ok, fail, skipped = 0, 0, 0
     for item in to_process:
-        success = process_item(item)
-        if success:
+        result = process_item(item)
+        if result is True:
             processed[item.id] = datetime.datetime.utcnow().isoformat()
             save_state(processed)
             ok += 1
+        elif result is None:
+            skipped += 1
+            print(f"  [INFO] 转录失败，未标记已处理，下次运行可重试")
         else:
             fail += 1
 
-    print(f"\n完成：成功 {ok}，失败 {fail}")
+    print(f"\n完成：成功 {ok}，失败 {fail}，待重试 {skipped}")
 
 
 # ── 命令：URL 模式 ─────────────────────────────────────────────────────────
@@ -553,11 +595,13 @@ def cmd_url(args):
             fail += 1
             continue
 
-        success = process_item(item)
-        if success:
+        result = process_item(item)
+        if result is True:
             processed[item.id] = datetime.datetime.utcnow().isoformat()
             save_state(processed)
             ok += 1
+        elif result is None:
+            print(f"  [INFO] 转录失败，未标记已处理，下次运行可重试")
         else:
             fail += 1
 
@@ -568,9 +612,10 @@ def cmd_url(args):
 def main():
     parser = argparse.ArgumentParser(description="每日内容策展抓取工具")
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--batch", action="store_true", help="扫描订阅源批量处理")
+    group.add_argument("--batch", action="store_true", help="扫描订阅源批量处理（交互选择）")
     group.add_argument("--url", nargs="+", dest="urls", metavar="URL", help="直接处理指定 URL")
     parser.add_argument("--limit", type=int, default=5, help="每个源检查最近几条（默认5）")
+    parser.add_argument("--auto", action="store_true", help="自动处理全部新内容，不等待确认（适合定时任务）")
 
     args = parser.parse_args()
 
