@@ -3,6 +3,7 @@
 """
 
 import json
+import html
 import os
 import time
 from pathlib import Path
@@ -15,10 +16,12 @@ import re as _re
 try:
     import markdown as _md_lib
     def _render_markdown(text):
-        return _md_lib.markdown(text or '', extensions=['extra'])
+        # Escape raw HTML before Markdown conversion so untrusted content cannot inject scripts.
+        safe_text = html.escape(text or '')
+        return _md_lib.markdown(safe_text, extensions=['extra'])
 except ImportError:
     def _render_markdown(text):
-        return (text or '').replace('\n', '<br>')
+        return html.escape(text or '').replace('\n', '<br>')
 
 def _strip_markdown(text):
     """剥除 Markdown 符号，返回纯文本（用于摘要预览）"""

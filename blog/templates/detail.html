@@ -186,7 +186,15 @@
         if (bio.length > 200) break;
     }
     if (!bio) bio = guestName + '，本期节目嘉宾。';
-    tooltip.innerHTML = '<div class="d-guest-bubble-arrow"></div><div class="d-guest-bubble-name">' + guestName + '</div><div class="d-guest-bubble-bio">' + bio + '</div>';
+    const arrow = document.createElement('div');
+    arrow.className = 'd-guest-bubble-arrow';
+    const nameNode = document.createElement('div');
+    nameNode.className = 'd-guest-bubble-name';
+    nameNode.textContent = guestName;
+    const bioNode = document.createElement('div');
+    bioNode.className = 'd-guest-bubble-bio';
+    bioNode.textContent = bio;
+    tooltip.replaceChildren(arrow, nameNode, bioNode);
 
     function positionTooltip() {
         const rect = trigger.getBoundingClientRect();

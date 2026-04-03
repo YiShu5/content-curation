@@ -259,6 +259,7 @@ ${quotes || '（未提取）'}
 function updateMetadataJson(archiveDir, result) {
   const metaPath = path.join(archiveDir, 'metadata.json');
   const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+  const rewrittenAt = new Date().toISOString();
 
   const updated = {
     ...meta,
@@ -274,10 +275,29 @@ function updateMetadataJson(archiveDir, result) {
     score_total: result.scores?.total ?? null,
     score_verdict: result.scores?.verdict ?? null,
     rewrite_complete: true,
-    rewritten_at: new Date().toISOString(),
+    rewritten_at: rewrittenAt,
+    feishu_synced: false,
+    feishu_record_id: null,
+    feishu_doc_synced: false,
+    feishu_doc_id: null,
+    feishu_doc_url: null,
   };
 
+  delete updated.rewrite_error;
+  delete updated.rewrite_failed_at;
+  delete updated.feishu_synced_at;
+  delete updated.feishu_doc_synced_at;
+  delete updated.feishu_doc_sync_started_at;
+  delete updated.feishu_doc_blocks_written;
+  delete updated.feishu_doc_total_blocks;
+
   fs.writeFileSync(metaPath, JSON.stringify(updated, null, 2), 'utf-8');
+
+  const errorPath = path.join(archiveDir, 'rewrite_error.json');
+  if (fs.existsSync(errorPath)) {
+    fs.unlinkSync(errorPath);
+  }
+
   return updated;
 }
 

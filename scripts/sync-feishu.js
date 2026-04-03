@@ -30,9 +30,14 @@ async function feishuFetch(url, options = {}, { timeout = 30000, retries = 3 } =
     const timer = setTimeout(() => controller.abort(), timeout);
     try {
       const resp = await fetch(url, { ...options, signal: controller.signal });
-      if (resp.status === 429) {
+      const retryableStatus = resp.status === 429 || resp.status >= 500;
+      if (retryableStatus) {
         const wait = (attempt + 1) * 3000;
-        console.warn(`  [WARN] 飞书 API 频率限制，${wait / 1000}s 后重试...`);
+        if (attempt === retries - 1) {
+          const body = await resp.text().catch(() => '');
+          throw new Error(`飞书 API 响应异常 (${resp.status}): ${body.slice(0, 200)}`);
+        }
+        console.warn(`  [WARN] 飞书 API 响应异常 (${resp.status})，${wait / 1000}s 后重试...`);
         await new Promise(r => setTimeout(r, wait));
         continue;
       }

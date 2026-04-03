@@ -8,6 +8,7 @@
 
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -204,7 +205,7 @@ def fetch_single_url(url: str) -> VideoItem | None:
     elif not ("youtube.com" in url or "youtu.be" in url):
         # Treat as direct audio URL (e.g. podcast episode)
         return VideoItem(
-            id=re.sub(r"[^\w]", "_", url)[:40],
+            id=f"audio-{hashlib.sha1(url.encode('utf-8')).hexdigest()[:16]}",
             url=url,
             title=url.split("/")[-1].split("?")[0] or "直接链接",
             uploader="直接输入",
@@ -300,10 +301,21 @@ def get_transcript_bibigpt(url: str) -> str:
                 raise RuntimeError(f"BibiGPT detail 结构未知: {str(detail)[:300]}")
             raise RuntimeError(f"BibiGPT 返回了意外结构: {str(data)[:200]}")
         except requests.HTTPError as e:
-            if e.response.status_code < 500 or attempt == 2:
+            status_code = e.response.status_code if e.response is not None else None
+            is_retryable = status_code == 429 or (status_code is not None and status_code >= 500)
+            if not is_retryable:
                 raise
-            print(f"  [WARN] BibiGPT 请求失败 (尝试 {attempt+1}/3)，10s 后重试...")
-            time.sleep(10)
+            if attempt == 2:
+                raise RuntimeError(f"BibiGPT 请求失败 (HTTP {status_code})，已重试 3 次: {e}") from e
+            wait = 10 * (attempt + 1)
+            print(f"  [WARN] BibiGPT 请求失败 (HTTP {status_code}，尝试 {attempt+1}/3)，{wait}s 后重试...")
+            time.sleep(wait)
+        except requests.RequestException as e:
+            if attempt == 2:
+                raise RuntimeError(f"BibiGPT 网络异常，已重试 3 次: {e}") from e
+            wait = 10 * (attempt + 1)
+            print(f"  [WARN] BibiGPT 网络异常 (尝试 {attempt+1}/3)，{wait}s 后重试...")
+            time.sleep(wait)
     raise RuntimeError("BibiGPT 连续3次请求失败")
 
 
@@ -342,9 +354,11 @@ def format_duration(seconds: int) -> str:
     return f"{m}:{s:02d}"
 
 
-def make_archive_dir(upload_date: str, title: str) -> Path:
+def make_archive_dir(upload_date: str, title: str, item_id: str) -> Path:
     date_str = upload_date[:8] if len(upload_date) >= 8 else datetime.datetime.now().strftime("%Y%m%d")
-    folder_name = f"{date_str}-{sanitize_title(title)}"
+    # Include a stable id suffix to avoid collisions on same-day duplicate/truncated titles.
+    unique_suffix = hashlib.sha1(item_id.encode("utf-8")).hexdigest()[:8]
+    folder_name = f"{date_str}-{sanitize_title(title)}-{unique_suffix}"
     path = ARCHIVE_DIR / folder_name
     path.mkdir(parents=True, exist_ok=True)
     return path
@@ -364,6 +378,10 @@ def download_thumbnail(url: str, dest: Path) -> bool:
             suffix = ".png"
         # rename dest with correct suffix if needed
         final_dest = dest.with_suffix(suffix)
+        for stale_ext in (".jpg", ".jpeg", ".png", ".webp"):
+            stale_path = dest.with_suffix(stale_ext)
+            if stale_path != final_dest and stale_path.exists():
+                stale_path.unlink()
         final_dest.write_bytes(resp.content)
         return True
     except Exception as e:
@@ -377,7 +395,7 @@ def process_item(item: VideoItem) -> bool | None:
     print(f"\n处理: {item.title[:60]}")
     try:
         # 1. 创建归档目录
-        archive_dir = make_archive_dir(item.upload_date, item.title)
+        archive_dir = make_archive_dir(item.upload_date, item.title, item.id)
         meta_path = archive_dir / "metadata.json"
         if meta_path.exists():
             existing = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -468,6 +486,7 @@ transcript_source: {transcript_source or 'none'}
                 print(f"  [WARN] rewrite.js 失败 (exit {result.returncode})")
                 if result.stderr:
                     print(f"       {result.stderr[:300]}")
+                return False
         else:
             print("  [跳过] 无转录文本，跳过 AI 改写")
             return None  # 转录失败，不写入 state，下次可重试
