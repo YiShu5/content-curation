@@ -319,6 +319,42 @@ def get_transcript_bibigpt(url: str) -> str:
     raise RuntimeError("BibiGPT 连续3次请求失败")
 
 
+def get_transcript_baoyu(url: str, cache_dir: Path) -> str:
+    """baoyu-youtube-transcript 免费降级方案（无需 API Key）"""
+    skill_script = PROJECT_ROOT / "vendor" / "baoyu-youtube-transcript" / "scripts" / "main.ts"
+    if not skill_script.exists():
+        raise RuntimeError("baoyu 脚本不存在")
+    bun_cmd = "bun"
+    try:
+        subprocess.run(["bun", "--version"], capture_output=True, check=True)
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        bun_cmd = None
+    if bun_cmd:
+        cmd = ["bun", str(skill_script)]
+    else:
+        cmd = ["npx", "-y", "bun", str(skill_script)]
+    out_dir = str(cache_dir / "baoyu-cache")
+    result = subprocess.run(
+        cmd + [url, "--no-timestamps", "--languages", "zh-Hans,zh,en", "--output-dir", out_dir],
+        capture_output=True, text=True, encoding="utf-8", timeout=120,
+        cwd=str(PROJECT_ROOT),
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"baoyu 脚本失败: {result.stderr[:300]}")
+    # 找到生成的 transcript.md
+    out_path = Path(out_dir)
+    md_files = list(out_path.rglob("transcript.md"))
+    if not md_files:
+        raise RuntimeError("baoyu 未生成 transcript.md")
+    raw = md_files[0].read_text(encoding="utf-8")
+    # 去掉 YAML frontmatter
+    if raw.startswith("---"):
+        end = raw.find("\n---", 3)
+        if end != -1:
+            raw = raw[end + 4:].lstrip()
+    return raw.strip()
+
+
 def get_transcript_ytapi(video_id: str) -> str:
     """YouTube transcript-api 降级方案"""
     try:
@@ -416,13 +452,20 @@ def process_item(item: VideoItem) -> bool | None:
             print(f"  [WARN] BibiGPT 失败: {e}")
             if item.platform == "youtube":
                 try:
-                    print("  [降级] 尝试 youtube-transcript-api ...")
-                    transcript = get_transcript_ytapi(item.id)
-                    transcript_source = "youtube-transcript-api"
-                    print(f"  [OK] 降级转录成功 ({len(transcript)} 字符)")
-                except Exception as e2:
-                    transcript_error = str(e2)
-                    print(f"  [WARN] 转录降级也失败: {e2}")
+                    print("  [降级1] 尝试 baoyu-youtube-transcript ...")
+                    transcript = get_transcript_baoyu(item.url, archive_dir)
+                    transcript_source = "baoyu"
+                    print(f"  [OK] baoyu 转录成功 ({len(transcript)} 字符)")
+                except Exception as e_baoyu:
+                    print(f"  [WARN] baoyu 失败: {e_baoyu}")
+                    try:
+                        print("  [降级2] 尝试 youtube-transcript-api ...")
+                        transcript = get_transcript_ytapi(item.id)
+                        transcript_source = "youtube-transcript-api"
+                        print(f"  [OK] 降级转录成功 ({len(transcript)} 字符)")
+                    except Exception as e2:
+                        transcript_error = str(e2)
+                        print(f"  [WARN] 转录全部降级失败: {e2}")
             else:
                 transcript_error = str(e)
 

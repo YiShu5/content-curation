@@ -144,8 +144,8 @@
                 <div class="d-prose" id="article-prose">
                     {% if article.summary_md %}
                     {{ article.summary_md | markdown | safe }}
-                    {% else %}
-                    {{ article.summary | e | replace('\n', '<br>') | safe }}
+                    {% elif article.summary %}
+                    {{ article.summary | markdown | safe }}
                     {% endif %}
                 </div>
             </section>
@@ -371,55 +371,40 @@
     });
 })();
 
-// 自动生成目录 — 只保留指定的 4 个条目
+// 自动生成目录 — 动态读取所有 section 标题
 (function () {
     const nav = document.getElementById('toc-nav');
     const toc = document.getElementById('toc');
     if (!nav) return;
 
-    // emoji → 文字的完整映射
-    const displayMap = {
-        '金句精选':     ['🗣', '金句精选'],
-        '核心观点':     ['💡', '核心观点'],
-        '核心论点':     ['🎯', '核心论点'],
-        '结论与行动框架': ['🧭', '结论与行动框架'],
+    const emojiMap = {
+        '金句精选': '🗣', '核心观点': '💡', '核心论点': '🎯',
+        '结论与行动框架': '🧭', '关键案例': '📊', '背景': '📖',
     };
-    const allowedTitles = Object.keys(displayMap);
 
-    // 收集所有 section 标题（页面级 h2 + 深度摘要内 h2/h3）
-    const allHeadings = document.querySelectorAll('.d-section-title, #article-prose h2, #article-prose h3');
-    const matched = [];
+    const templateHeadings = Array.from(document.querySelectorAll('.d-section-title'));
+    const proseH2s = Array.from(document.querySelectorAll('#article-prose h2'));
+    const all = [...templateHeadings, ...proseH2s];
+    if (all.length === 0) { toc.style.display = 'none'; return; }
 
-    allHeadings.forEach((h, i) => {
-        const text = h.textContent.replace(/^[\s\u200b]+|[\s\u200b]+$/g, '');
-        // 检查标题文本是否包含任一允许项
-        const hit = allowedTitles.some(t => text.includes(t));
-        if (!hit) return;
+    all.forEach((h, i) => {
         if (!h.id) h.id = 'toc-sec-' + i;
-        matched.push(h);
-    });
-
-    if (matched.length === 0) { toc.style.display = 'none'; return; }
-
-    matched.forEach(h => {
+        const raw = h.textContent.trim();
+        const emojiKey = Object.keys(emojiMap).find(k => raw.includes(k));
+        const emoji = emojiKey ? emojiMap[emojiKey] : '▸';
         const a = document.createElement('a');
         a.href = '#' + h.id;
-        // 找到对应的 emoji + 文字
-        const raw = h.textContent.replace(/^[\s\u200b]+|[\s\u200b]+$/g, '');
-        const key = allowedTitles.find(t => raw.includes(t));
-        const [emoji, label] = displayMap[key] || ['', raw];
+        a.className = 'toc-link toc-' + h.tagName.toLowerCase();
         const emojiSpan = document.createElement('span');
         emojiSpan.className = 'toc-emoji';
         emojiSpan.textContent = emoji;
         const labelSpan = document.createElement('span');
-        labelSpan.textContent = label;
+        labelSpan.textContent = raw;
         a.appendChild(emojiSpan);
         a.appendChild(labelSpan);
-        a.className = 'toc-link toc-' + h.tagName.toLowerCase();
         nav.appendChild(a);
     });
 
-    // 滚动高亮
     const links = nav.querySelectorAll('.toc-link');
     const obs = new IntersectionObserver(entries => {
         entries.forEach(e => {
@@ -430,8 +415,6 @@
             }
         });
     }, { rootMargin: '-20% 0px -70% 0px' });
-
-    matched.forEach(h => obs.observe(h));
-})();
-</script>
+    all.forEach(h => obs.observe(h));
+})();</script>
 {% endblock %}

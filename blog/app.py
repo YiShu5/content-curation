@@ -16,9 +16,9 @@ import re as _re
 try:
     import markdown as _md_lib
     def _render_markdown(text):
-        # Escape raw HTML before Markdown conversion so untrusted content cannot inject scripts.
-        safe_text = html.escape(text or '')
-        return _md_lib.markdown(safe_text, extensions=['extra'])
+        # Fix AI-generated double heading markers e.g. "### ### 子标题"
+        text = _re.sub(r'^(#{1,6}) +#{1,6} +', r'\1 ', text or '', flags=_re.MULTILINE)
+        return _md_lib.markdown(text, extensions=['extra'])
 except ImportError:
     def _render_markdown(text):
         return html.escape(text or '').replace('\n', '<br>')
