@@ -16,6 +16,11 @@
                 <span class="logo-icon">降</span>
                 <span class="logo-text">降噪</span>
             </a>
+            <form class="header-search" action="/search" method="get" role="search">
+                <input type="search" name="q" placeholder="语义搜索 · 按意思找内容"
+                       value="{{ query|default('') }}" autocomplete="off">
+                <button type="submit" aria-label="搜索">搜索</button>
+            </form>
         </div>
     </header>
 

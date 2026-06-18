@@ -10,7 +10,10 @@ config/.env
 config/state.yaml
 archive/
 !archive/.gitkeep
+blog/data/
+blog/.venv/
 
-# IDE
+# IDE / 本地工具配置
 .vscode/
 .idea/
+.claude/

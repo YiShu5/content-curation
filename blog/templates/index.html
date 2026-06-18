@@ -31,51 +31,7 @@
     {% endif %}
 
     {% for r in records %}
-    <a href="/article/{{ r.id }}" class="card" target="_blank" data-topic="{{ r.topic or '' }}">
-        <div class="card-cover">
-            {% if r.cover_token %}
-            <img src="/cover/{{ r.cover_token }}" alt="{{ r.title }}" loading="lazy">
-            {% else %}
-            <div class="card-cover-placeholder"></div>
-            {% endif %}
-            <div class="card-cover-badges">
-                {% if r.creator %}
-                <span class="badge-creator">
-                    <span class="badge-avatar">{{ r.creator[0] }}</span>
-                    {{ r.creator[:12] }}
-                </span>
-                {% endif %}
-                {% if r.platform %}
-                <span class="badge-platform {{ r.platform | lower }}">{{ r.platform }} ↗</span>
-                {% endif %}
-            </div>
-        </div>
-        <div class="card-body">
-            <div class="card-tags">
-                <span class="tag">{{ r.platform }}</span>
-                {% if r.topic %}
-                <span class="tag tag-topic">{{ r.topic }}</span>
-                {% endif %}
-                {% if r.guests and r.guests.strip() %}
-                <span class="tag tag-guest">+{{ r.guests.split('、') | select | list | length }}</span>
-                {% endif %}
-                <span class="card-date">{{ r.pub_date }}</span>
-            </div>
-            <h2 class="card-title">{{ r.title }}</h2>
-            {% if r.creator %}
-            <p class="card-creator">
-                <span class="creator-avatar">{{ r.creator[0] }}</span>
-                {{ r.creator }}
-            </p>
-            {% endif %}
-            {% set preview = r.summary | strip_md %}
-            {% if preview %}
-            <div class="card-insight">
-                <p class="card-insight-text">{{ preview[:100] }}{% if preview|length > 100 %}…{% endif %}</p>
-            </div>
-            {% endif %}
-        </div>
-    </a>
+    {% include "_card.html" %}
     {% endfor %}
 </section>
 

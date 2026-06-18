@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 import requests
-from flask import Flask, render_template, abort, Response
+from flask import Flask, render_template, abort, Response, request
 
 import re as _re
 
@@ -199,15 +199,18 @@ def index():
 
 
 # 本地 archive 索引缓存：{ feishu_record_id -> metadata dict }
-_local_index_cache = {"index": {}, "expiry": 0}
+# loaded 标记区分「尚未构建」与「构建结果为空」，避免空 archive 每次请求重复扫描
+_local_index_cache = {"index": {}, "expiry": 0, "loaded": False}
 
 
 def _build_local_index():
     now = time.time()
-    if _local_index_cache["index"] and now < _local_index_cache["expiry"]:
+    if _local_index_cache["loaded"] and now < _local_index_cache["expiry"]:
         return
     archive_root = Path(__file__).parent.parent / "archive"
     if not archive_root.exists():
+        _local_index_cache["index"] = {}
+        _local_index_cache["loaded"] = True
         _local_index_cache["expiry"] = now + app.config["CACHE_TTL"]
         return
     index = {}
@@ -225,6 +228,7 @@ def _build_local_index():
         except Exception:
             continue
     _local_index_cache["index"] = index
+    _local_index_cache["loaded"] = True
     _local_index_cache["expiry"] = now + app.config["CACHE_TTL"]
 
 
@@ -257,6 +261,40 @@ def _enrich_from_local(article):
         article.setdefault("score_verdict", "")
         article.setdefault("scores", {})
     return article
+
+
+@app.route("/search")
+def search():
+    query = (request.args.get("q") or "").strip()
+    if not query:
+        return render_template("search.html", query="", results=[], error="")
+
+    try:
+        records = fetch_records()
+    except Exception as e:
+        print(f"[ERROR] 获取数据失败: {e}")
+        return render_template("search.html", query=query, results=[],
+                               error="获取内容数据失败，请稍后重试。")
+    for r in records:
+        _enrich_from_local(r)
+
+    import embeddings
+    try:
+        hits = embeddings.search(query, records)
+    except embeddings.EmbeddingError as e:
+        return render_template("search.html", query=query, results=[], error=str(e))
+    except Exception as e:
+        print(f"[ERROR] 语义搜索失败: {e}")
+        return render_template("search.html", query=query, results=[],
+                               error="语义搜索出错，请稍后重试。")
+
+    # 把相似度分附到 record 上，方便模板展示
+    results = []
+    for rec, score in hits:
+        rec = dict(rec)
+        rec["score"] = round(score * 100)
+        results.append(rec)
+    return render_template("search.html", query=query, results=results, error="")
 
 
 @app.route("/article/<record_id>")

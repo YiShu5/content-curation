@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}搜索「{{ query }}」· 降噪{% endblock %}
+
+{% block content %}
+<section class="search-head">
+    {% if query %}
+    <h1 class="search-title">「{{ query }}」</h1>
+    {% if not error %}
+    <p class="search-meta">语义匹配 · 共 {{ results|length }} 条结果</p>
+    {% endif %}
+    {% else %}
+    <h1 class="search-title">语义搜索</h1>
+    <p class="search-meta">输入一句话，按「意思」检索最相关的内容。</p>
+    {% endif %}
+</section>
+
+{% if error %}
+<div class="empty-state">
+    <p>{{ error }}</p>
+</div>
+{% elif query and not results %}
+<div class="empty-state">
+    <p>没有找到与「{{ query }}」相关的内容。</p>
+</div>
+{% endif %}
+
+<section class="card-grid" id="card-grid">
+    {% for r in results %}
+    {% include "_card.html" %}
+    {% endfor %}
+</section>
+{% endblock %}

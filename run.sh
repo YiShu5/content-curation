@@ -17,6 +17,7 @@ usage() {
   echo "  sync                     将已改写但未同步的内容推送到飞书多维表格"
   echo "  sync-doc [archive_dir]   将已改写内容创建为飞书文档（长文阅读视图）"
   echo "  all [--limit N]          执行 batch（交互），完成后同步多维表格 + 飞书文档"
+  echo "  embed                    构建语义搜索向量索引（智谱 embedding-3）"
   echo ""
   echo "示例:"
   echo "  ./run.sh auto                         # 每日定时任务用这个"
@@ -67,6 +68,14 @@ case "$CMD" in
     ;;
   sync-doc)
     node scripts/sync-feishu-doc.js "$@"
+    ;;
+  embed)
+    # 优先用博客 venv（已装 numpy/flask 等），否则退回系统 python
+    if [ -x "blog/.venv/bin/python" ]; then
+      blog/.venv/bin/python blog/embeddings.py build
+    else
+      python blog/embeddings.py build
+    fi
     ;;
   all)
     python scripts/fetch.py --batch --auto "$@"

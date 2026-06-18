@@ -1674,3 +1674,74 @@ a { color: inherit; text-decoration: none; }
     .d-prose { font-size: 15px; }
     .d-bar-row { grid-template-columns: 78px 1fr 40px; }
 }
+
+/* ── 顶部语义搜索框 ───────────────────────────────────── */
+.header-search {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 4px 4px 14px;
+    transition: border-color .15s, box-shadow .15s;
+}
+.header-search:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-light);
+}
+.header-search input {
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 14px;
+    color: var(--text);
+    width: 220px;
+    max-width: 42vw;
+}
+.header-search input::placeholder { color: var(--text-muted); }
+.header-search button {
+    border: none;
+    cursor: pointer;
+    background: var(--accent);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 999px;
+    padding: 7px 16px;
+    transition: background .15s;
+}
+.header-search button:hover { background: var(--accent-hover); }
+
+/* ── 搜索结果页 ───────────────────────────────────────── */
+.search-head {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 36px 24px 8px;
+}
+.search-title {
+    font-family: var(--font-serif);
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text);
+}
+.search-meta {
+    margin-top: 6px;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+/* ── 卡片语义相关度角标 ───────────────────────────────── */
+.card-score {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 2;
+    background: rgba(26,26,46,0.78);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 999px;
+    backdrop-filter: blur(4px);
+}
