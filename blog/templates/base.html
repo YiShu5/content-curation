@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}降噪{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700;900&display=swap" rel="stylesheet">
@@ -16,9 +17,10 @@
                 <span class="logo-icon">降</span>
                 <span class="logo-text">降噪</span>
             </a>
-            <form class="header-search" action="/search" method="get" role="search">
+            <form class="header-search" action="/search" method="get" role="search"
+                  onsubmit="this.classList.add('is-loading'); var b=this.querySelector('button'); if(b){b.dataset.t=b.textContent; b.textContent='搜索中…';}">
                 <input type="search" name="q" placeholder="语义搜索 · 按意思找内容"
-                       value="{{ query|default('') }}" autocomplete="off">
+                       value="{{ query|default('') }}" autocomplete="off" required>
                 <button type="submit" aria-label="搜索">搜索</button>
             </form>
         </div>

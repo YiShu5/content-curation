@@ -253,6 +253,47 @@ def search(query, records, top_k=24, min_score=0.0):
     return results
 
 
+def related(record_id, records, top_k=3, min_score=0.30):
+    """基于预建向量索引，返回与指定内容最相似的若干条 [(record, score), ...]。
+    只用索引里已有的向量做余弦，不调用 API（零成本）。按标题去重，跳过同一视频的重复记录。"""
+    if np is None:
+        return []
+    index = load_index()
+    target = (index.get(record_id) or {}).get("vector")
+    if not target:
+        return []
+    by_id = {r.get("id"): r for r in records}
+    cur_title = (by_id.get(record_id) or {}).get("title", "")
+
+    tv = np.asarray(target, dtype=np.float32)
+    tv = tv / (np.linalg.norm(tv) + 1e-8)
+
+    scored = []
+    for rid, item in index.items():
+        if rid == record_id or rid not in by_id:
+            continue
+        vec = item.get("vector")
+        if not vec:
+            continue
+        vv = np.asarray(vec, dtype=np.float32)
+        vv = vv / (np.linalg.norm(vv) + 1e-8)
+        scored.append((by_id[rid], float(tv @ vv)))
+    scored.sort(key=lambda x: -x[1])
+
+    out, seen = [], {cur_title}
+    for rec, score in scored:
+        if score < min_score:
+            break
+        title = rec.get("title", "")
+        if title in seen:
+            continue
+        seen.add(title)
+        out.append((rec, score))
+        if len(out) >= top_k:
+            break
+    return out
+
+
 # ── CLI: python embeddings.py build ─────────────────────────────────────────
 def _cli_build():
     # 惰性导入 app，避免 app <-> embeddings 模块级循环

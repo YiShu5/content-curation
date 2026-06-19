@@ -61,12 +61,36 @@
             </div>
             {% endif %}
 
-            <!-- 评分卡片 -->
+            <!-- 评分卡片（雷达图） -->
             {% if article.score_total is not none %}
             {% set total = article.score_total %}
             {% set sc = article.scores %}
-            <div class="d-score-card">
-                <div class="d-score-left">
+            {% set ai = sc.ai_relevance.score if sc.ai_relevance else 0 %}
+            {% set st = sc.storytelling.score if sc.storytelling else 0 %}
+            {% set bn = sc.bonus.score if sc.bonus else 0 %}
+            {% set r_ai = ai / 40 %}{% set r_st = st / 30 %}{% set r_bn = bn / 30 %}
+            {% set cx = 100 %}{% set cy = 98 %}{% set R = 70 %}
+            {% set ax = cx %}{% set ay = (cy - R * r_ai) | round(1) %}
+            {% set sx = (cx + R * r_st * 0.866) | round(1) %}{% set sy = (cy + R * r_st * 0.5) | round(1) %}
+            {% set bx = (cx - R * r_bn * 0.866) | round(1) %}{% set by = (cy + R * r_bn * 0.5) | round(1) %}
+            <div class="d-score-card d-score-radar">
+                <div class="d-radar-chart">
+                    <svg viewBox="0 0 200 180" width="170" height="153" aria-label="评分雷达图">
+                        <polygon points="100,28 160.6,133 39.4,133" fill="none" stroke="#E5E7EB" stroke-width="1"/>
+                        <polygon points="100,63 130.3,115.5 69.7,115.5" fill="none" stroke="#EFEDE8" stroke-width="1"/>
+                        <line x1="100" y1="98" x2="100" y2="28" stroke="#E5E7EB" stroke-width="1"/>
+                        <line x1="100" y1="98" x2="160.6" y2="133" stroke="#E5E7EB" stroke-width="1"/>
+                        <line x1="100" y1="98" x2="39.4" y2="133" stroke="#E5E7EB" stroke-width="1"/>
+                        <polygon points="{{ ax }},{{ ay }} {{ sx }},{{ sy }} {{ bx }},{{ by }}" fill="rgba(242,107,58,0.16)" stroke="#F26B3A" stroke-width="2" stroke-linejoin="round"/>
+                        <circle cx="{{ ax }}" cy="{{ ay }}" r="3" fill="#3B82F6"/>
+                        <circle cx="{{ sx }}" cy="{{ sy }}" r="3" fill="#8B5CF6"/>
+                        <circle cx="{{ bx }}" cy="{{ by }}" r="3" fill="#10B981"/>
+                        <text x="100" y="18" text-anchor="middle" font-size="12" fill="#6B7280">AI相关性</text>
+                        <text x="178" y="148" text-anchor="middle" font-size="12" fill="#6B7280">故事性</text>
+                        <text x="22" y="148" text-anchor="middle" font-size="12" fill="#6B7280">加分项</text>
+                    </svg>
+                </div>
+                <div class="d-radar-side">
                     <div class="d-score-num">{{ total }}<span class="d-score-denom">/100</span></div>
                     <div class="d-score-verdict">
                         {%- if total >= 90 %}🔥 必读
@@ -76,35 +100,42 @@
                         {%- else %}⏭️ 可跳过
                         {%- endif %}
                     </div>
-                </div>
-                <div class="d-score-bars">
-                    {% if sc.ai_relevance %}
-                    <div class="d-bar-row">
-                        <span class="d-bar-label">🤖 AI相关性</span>
-                        <div class="d-bar-track"><div class="d-bar-fill" style="width:{{ (sc.ai_relevance.score/40*100)|int }}%;background:#3B82F6"></div></div>
-                        <span class="d-bar-val">{{ sc.ai_relevance.score }}<small>/40</small></span>
+                    <div class="d-radar-legend">
+                        <span><i class="d-dot" style="background:#3B82F6"></i>AI相关性<b>{{ ai }}</b><small>/40</small></span>
+                        <span><i class="d-dot" style="background:#8B5CF6"></i>故事性<b>{{ st }}</b><small>/30</small></span>
+                        <span><i class="d-dot" style="background:#10B981"></i>加分项<b>{{ bn }}</b><small>/30</small></span>
                     </div>
-                    {% endif %}
-                    {% if sc.storytelling %}
-                    <div class="d-bar-row">
-                        <span class="d-bar-label">📖 故事性</span>
-                        <div class="d-bar-track"><div class="d-bar-fill" style="width:{{ (sc.storytelling.score/30*100)|int }}%;background:#8B5CF6"></div></div>
-                        <span class="d-bar-val">{{ sc.storytelling.score }}<small>/30</small></span>
-                    </div>
-                    {% endif %}
-                    {% if sc.bonus %}
-                    <div class="d-bar-row">
-                        <span class="d-bar-label">✨ 加分项</span>
-                        <div class="d-bar-track"><div class="d-bar-fill" style="width:{{ (sc.bonus.score/30*100)|int }}%;background:#10B981"></div></div>
-                        <span class="d-bar-val">{{ sc.bonus.score }}<small>/30</small></span>
-                    </div>
-                    {% endif %}
                 </div>
             </div>
             {% endif %}
 
-            <!-- 嘉宾 -->
-            {% if article.guests %}
+            <!-- 嘉宾（默认折叠，点击展开） -->
+            {% if article.guest_info %}
+            <section class="d-guest-section">
+                <div class="d-guest-label">👤 本期嘉宾 · {{ article.guest_info | length }} 位</div>
+                <div class="d-guest-list">
+                    {% for g in article.guest_info %}
+                    <div class="d-guest-row{% if not g.bio and not g.relevance %} d-guest-row-static{% endif %}"
+                         {% if g.bio or g.relevance %}onclick="this.classList.toggle('open')"{% endif %}>
+                        <div class="d-guest-row-head">
+                            <span class="d-guest-avatar-sm">{{ g.name[0] if g.name else '？' }}</span>
+                            <span class="d-guest-name">{{ g.name }}</span>
+                            {% if g.title %}<span class="d-guest-title">{{ g.title }}</span>{% endif %}
+                            {% if g.bio or g.relevance %}<span class="d-guest-toggle">▾</span>{% endif %}
+                        </div>
+                        {% if g.bio or g.relevance %}
+                        <div class="d-guest-expand">
+                            {% if g.bio %}<p class="d-guest-bio">{{ g.bio }}</p>{% endif %}
+                            {% if g.relevance %}
+                            <p class="d-guest-rel"><span class="d-guest-rel-label">本期</span>{{ g.relevance }}</p>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+            {% elif article.guests %}
             <div class="d-guests">
                 <span class="d-section-label">👤 嘉宾</span>
                 <span class="d-guests-text d-guest-trigger" id="guest-trigger">{{ article.guests }}</span>
@@ -112,30 +143,18 @@
             <div class="d-guest-tooltip" id="guest-tooltip"></div>
             {% endif %}
 
-            <!-- 金句精选 -->
+            <!-- 金句精选（最多 3 条） -->
             {% if article.key_quotes %}
             <section>
                 <h2 class="d-section-title">🗣 金句精选</h2>
                 <div class="d-quotes-list">
-                    {% for q in article.key_quotes %}
+                    {% for q in article.key_quotes[:3] %}
                     <div class="d-quote-item">
                         <span class="d-quote-mark">"</span>
                         <p class="d-quote-text">{{ q }}</p>
                     </div>
                     {% endfor %}
                 </div>
-            </section>
-            {% endif %}
-
-            <!-- 核心观点 -->
-            {% if article.core_ideas %}
-            <section>
-                <h2 class="d-section-title">💡 核心观点</h2>
-                <ul class="d-ideas-list">
-                    {% for idea in article.core_ideas %}
-                    <li>{{ idea }}</li>
-                    {% endfor %}
-                </ul>
             </section>
             {% endif %}
 
@@ -149,6 +168,29 @@
                     {% endif %}
                 </div>
             </section>
+
+            <!-- 相关推荐（语义相似） -->
+            {% if related %}
+            <section class="d-related">
+                <h2 class="d-section-title">🔗 相关推荐</h2>
+                <div class="d-related-grid">
+                    {% for r in related %}
+                    <a href="/article/{{ r.id }}" class="d-related-card">
+                        <div class="d-related-cover">
+                            {% if r.cover_token %}
+                            <img src="/cover/{{ r.cover_token }}" alt="{{ r.title }}" loading="lazy">
+                            {% else %}<div class="d-related-ph"></div>{% endif %}
+                            <span class="d-related-sim">{{ r.score }}% 相似</span>
+                        </div>
+                        <div class="d-related-body">
+                            <div class="d-related-meta">{{ r.platform }}{% if r.topic %} · {{ r.topic }}{% endif %}</div>
+                            <h3 class="d-related-title">{{ r.title }}</h3>
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
 
         </main>
 

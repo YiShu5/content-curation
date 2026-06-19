@@ -284,14 +284,20 @@ def get_transcript_bibigpt(url: str) -> str:
                 if attempt == 0:
                     print(f"  [DEBUG] BibiGPT 响应字段: {list(data.keys())}")
                 detail = data.get("detail") or {}
+                # 小红书/online-media 等：字幕分段在 detail.subtitlesArray
+                detail_segments = detail.get("subtitlesArray") if isinstance(detail, dict) else None
                 transcript = (
                     data.get("subtitle")
                     or data.get("text")
                     or (detail.get("subtitle") if isinstance(detail, dict) else None)
                     or (detail.get("text") if isinstance(detail, dict) else None)
                     or (detail.get("transcript") if isinstance(detail, dict) else None)
-                    # detail may be a list of subtitle segments
+                    # detail.subtitlesArray 是分段列表（startTime/text）
+                    or _parse_detail_segments(detail_segments)
+                    # detail 本身也可能直接是分段列表
                     or _parse_detail_segments(detail)
+                    # 纯文本兜底
+                    or (detail.get("contentText") if isinstance(detail, dict) else None)
                     or data.get("data", {}).get("subtitle")
                     or data.get("data", {}).get("text")
                     or ""

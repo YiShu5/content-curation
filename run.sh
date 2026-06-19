@@ -18,6 +18,8 @@ usage() {
   echo "  sync-doc [archive_dir]   将已改写内容创建为飞书文档（长文阅读视图）"
   echo "  all [--limit N]          执行 batch（交互），完成后同步多维表格 + 飞书文档"
   echo "  embed                    构建语义搜索向量索引（智谱 embedding-3）"
+  echo "  enrich-guests [--force]  为已归档内容生成嘉宾介绍（头衔/背景/本期角色）"
+  echo "  select-quotes [--n 3]    从已有金句中精选最精华的 N 条"
   echo ""
   echo "示例:"
   echo "  ./run.sh auto                         # 每日定时任务用这个"
@@ -75,6 +77,22 @@ case "$CMD" in
       blog/.venv/bin/python blog/embeddings.py build
     else
       python blog/embeddings.py build
+    fi
+    ;;
+  enrich-guests)
+    # 为已归档内容生成嘉宾介绍（头衔/背景/本期角色）
+    if [ -x ".venv/bin/python" ]; then
+      .venv/bin/python scripts/enrich-guests.py "$@"
+    else
+      python scripts/enrich-guests.py "$@"
+    fi
+    ;;
+  select-quotes)
+    # 从已有金句中精选最精华的 N 条（默认 3）
+    if [ -x ".venv/bin/python" ]; then
+      .venv/bin/python scripts/select-quotes.py "$@"
+    else
+      python scripts/select-quotes.py "$@"
     fi
     ;;
   all)
