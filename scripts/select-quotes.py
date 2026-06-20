@@ -10,22 +10,9 @@
   .venv/bin/python scripts/select-quotes.py [--n 3] [--force] [archive_dir ...]
 """
 import json
-import os
 import sys
-from pathlib import Path
 
-import requests
-
-PROJECT_ROOT = Path(__file__).parent.parent
-try:
-    from dotenv import load_dotenv
-    load_dotenv(PROJECT_ROOT / "config" / ".env")
-except ImportError:
-    pass
-
-API_KEY = os.getenv("OPENAI_API_KEY", "")
-BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com").rstrip("/")
-MODEL = os.getenv("OPENAI_MODEL", "deepseek-chat")
+from _common import chat_json, iter_metadata, require_api_key
 
 PROMPT = """你是中文内容编辑。下面是一期节目《{title}》提炼出的若干条金句。
 请从中挑选出**最精华、最有代表性、最能引发思考**的 {n} 条。
@@ -46,19 +33,7 @@ def select(title, quotes, n):
                .replace("{title}", title or "")
                .replace("{n}", str(n))
                .replace("{quotes}", numbered))
-    resp = requests.post(
-        f"{BASE_URL}/chat/completions",
-        headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
-        json={
-            "model": MODEL,
-            "messages": [{"role": "user", "content": content}],
-            "response_format": {"type": "json_object"},
-            "temperature": 0.2,
-        },
-        timeout=120,
-    )
-    resp.raise_for_status()
-    data = json.loads(resp.json()["choices"][0]["message"]["content"])
+    data = chat_json(content, temperature=0.2)
     idx = data.get("indices", [])
     picked = []
     for i in idx:
@@ -75,12 +50,8 @@ def main():
         n = int(argv[argv.index("--n") + 1])
     dirs = [a for a in argv if not a.startswith("--") and a != str(n)]
 
-    if not API_KEY:
-        print("[ERROR] 未配置 OPENAI_API_KEY")
-        sys.exit(1)
-
-    metas = ([Path(d) / "metadata.json" for d in dirs] if dirs
-             else sorted((PROJECT_ROOT / "archive").glob("*/metadata.json")))
+    require_api_key()
+    metas = iter_metadata(dirs)
 
     done = skipped = failed = 0
     for mp in metas:

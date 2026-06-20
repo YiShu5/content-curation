@@ -143,16 +143,10 @@ def fetch_records():
             if isinstance(pub_date, (int, float)):
                 pub_date = time.strftime("%Y-%m-%d", time.localtime(pub_date / 1000))
 
-            # 评分字段（飞书已有：总分/评级/AI相关性/故事性/加分项）
-            # 组装成详情页评分卡片期望的结构，archive 为空时也能显示
+            # 总分/评级作为兜底（archive 缺失时显示个大概）；评分细分维度统一由
+            # _enrich_from_local 用本地 archive 的新评分体系填充。飞书表里的旧维度列
+            # （AI相关性/故事性/加分项）已废弃，不再读取。
             score_total = _num_value(fields.get("总分"))
-            scores = {}
-            if _num_value(fields.get("AI相关性")) is not None:
-                scores["ai_relevance"] = {"score": _num_value(fields.get("AI相关性"))}
-            if _num_value(fields.get("故事性")) is not None:
-                scores["storytelling"] = {"score": _num_value(fields.get("故事性"))}
-            if _num_value(fields.get("加分项")) is not None:
-                scores["bonus"] = {"score": _num_value(fields.get("加分项"))}
 
             all_records.append({
                 "id": record_id,
@@ -169,7 +163,7 @@ def fetch_records():
                 "topic": _text_value(fields.get("话题", "")),
                 "score_total": score_total,
                 "score_verdict": _text_value(fields.get("评级", "")),
-                "scores": scores,
+                "scores": {},
             })
 
         if not data.get("data", {}).get("has_more"):
@@ -219,9 +213,26 @@ def index():
     # 用本地 archive 的中文标题覆盖可能的英文标题
     for r in records:
         _enrich_from_local(r)
-    # 只保留实际有内容的话题
+    # 只保留实际有内容的话题（带数量）
     used_topics = [t for t in TOPICS if any(r.get("topic") == t for r in records)]
-    return render_template("index.html", records=records, topics=used_topics)
+    topic_counts = {t: sum(1 for r in records if r.get("topic") == t) for t in used_topics}
+    # 质量评级（按固定顺序，只保留出现过的，带数量）
+    _verdict_order = ["必读", "强烈推荐", "推荐", "一般", "可跳过"]
+    _vc = {}
+    for r in records:
+        v = r.get("score_verdict")
+        if v:
+            _vc[v] = _vc.get(v, 0) + 1
+    verdicts = [{"name": v, "count": _vc[v]} for v in _verdict_order if v in _vc]
+    # 今日信号（独立模块；任何失败都不影响页面其余部分）
+    signals = []
+    try:
+        import today_signal
+        signals = today_signal.get_signals(records)
+    except Exception as e:
+        print(f"[WARN] 今日信号生成失败（不影响页面）: {e}")
+    return render_template("index.html", records=records, topics=used_topics,
+                           topic_counts=topic_counts, verdicts=verdicts, signals=signals)
 
 
 # 本地 archive 索引缓存：

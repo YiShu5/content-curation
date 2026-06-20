@@ -1,4 +1,4 @@
-<a href="/article/{{ r.id }}" class="card" target="_blank" data-topic="{{ r.topic or '' }}">
+<a href="/article/{{ r.id }}" class="card" target="_blank" data-topic="{{ r.topic or '' }}" data-verdict="{{ r.score_verdict or '' }}">
     <div class="card-cover">
         {% if r.cover_token %}
         <img src="/cover/{{ r.cover_token }}" alt="{{ r.title }}" loading="lazy">
@@ -32,6 +32,14 @@
             <span class="card-date">{{ r.pub_date }}</span>
         </div>
         <h2 class="card-title">{{ r.title }}</h2>
+        {% if r.score_total is not none %}
+        <div class="card-scores">
+            <span class="card-score-total">{{ r.score_total }}<small>分</small></span>
+            <span class="card-dim"><i style="background:#3B82F6"></i>洞察 {{ r.scores.insight.score if r.scores.insight else 0 }}</span>
+            <span class="card-dim"><i style="background:#10B981"></i>信源 {{ r.scores.source.score if r.scores.source else 0 }}</span>
+            <span class="card-dim"><i style="background:#8B5CF6"></i>可读 {{ r.scores.storytelling.score if r.scores.storytelling else 0 }}</span>
+        </div>
+        {% endif %}
         {% if r.creator %}
         <p class="card-creator">
             <span class="creator-avatar">{{ r.creator[0] }}</span>

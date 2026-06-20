@@ -3,6 +3,14 @@
 {% block title %}搜索「{{ query }}」· 降噪{% endblock %}
 
 {% block content %}
+<a href="/" class="anywhere-door" title="任意门 · 回首页">
+    <span class="ad-door">
+        <span class="ad-panel"></span>
+        <span class="ad-knob"></span>
+    </span>
+    <span class="ad-text">任意门 · 回首页</span>
+</a>
+
 <section class="search-head">
     {% if query %}
     <h1 class="search-title">「{{ query }}」</h1>

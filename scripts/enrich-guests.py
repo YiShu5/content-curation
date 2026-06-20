@@ -12,24 +12,9 @@
   .venv/bin/python scripts/enrich-guests.py [--force] [archive_dir ...]
 """
 import json
-import os
 import sys
-from pathlib import Path
 
-import requests
-
-PROJECT_ROOT = Path(__file__).parent.parent
-
-# 加载 config/.env
-try:
-    from dotenv import load_dotenv
-    load_dotenv(PROJECT_ROOT / "config" / ".env")
-except ImportError:
-    pass
-
-API_KEY = os.getenv("OPENAI_API_KEY", "")
-BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com").rstrip("/")
-MODEL = os.getenv("OPENAI_MODEL", "deepseek-chat")
+from _common import chat_json, iter_metadata, require_api_key
 
 PROMPT = """你是中文内容编辑。下面是一期节目/视频的信息，请为每位嘉宾生成结构化介绍。
 
@@ -57,20 +42,7 @@ def gen_guest_info(title, guests, summary):
                .replace("{title}", title or "")
                .replace("{guests}", "、".join(guests))
                .replace("{summary}", (summary or "")[:4000]))
-    resp = requests.post(
-        f"{BASE_URL}/chat/completions",
-        headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
-        json={
-            "model": MODEL,
-            "messages": [{"role": "user", "content": content}],
-            "response_format": {"type": "json_object"},
-            "temperature": 0.3,
-        },
-        timeout=120,
-    )
-    resp.raise_for_status()
-    raw = resp.json()["choices"][0]["message"]["content"]
-    data = json.loads(raw)
+    data = chat_json(content, temperature=0.3)
     out = data.get("guests", [])
     # 规范化字段
     cleaned = []
@@ -90,14 +62,8 @@ def main():
     args = [a for a in sys.argv[1:] if a != "--force"]
     force = "--force" in sys.argv
 
-    if not API_KEY:
-        print("[ERROR] 未配置 OPENAI_API_KEY")
-        sys.exit(1)
-
-    if args:
-        metas = [Path(a) / "metadata.json" for a in args]
-    else:
-        metas = sorted((PROJECT_ROOT / "archive").glob("*/metadata.json"))
+    require_api_key()
+    metas = iter_metadata(args)
 
     done = skipped = failed = 0
     for mp in metas:

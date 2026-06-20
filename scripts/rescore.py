@@ -11,22 +11,9 @@
   .venv/bin/python scripts/rescore.py [--force] [archive_dir ...]
 """
 import json
-import os
 import sys
-from pathlib import Path
 
-import requests
-
-PROJECT_ROOT = Path(__file__).parent.parent
-try:
-    from dotenv import load_dotenv
-    load_dotenv(PROJECT_ROOT / "config" / ".env")
-except ImportError:
-    pass
-
-API_KEY = os.getenv("OPENAI_API_KEY", "")
-BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com").rstrip("/")
-MODEL = os.getenv("OPENAI_MODEL", "deepseek-chat")
+from _common import chat_json, iter_metadata, require_api_key
 
 PROMPT = """你是严格的中文内容评审。请对下面这期内容打分。
 
@@ -72,19 +59,7 @@ def rescore(title, guests, body):
                .replace("{title}", title or "")
                .replace("{guests}", "、".join(guests) if guests else "（无具名嘉宾）")
                .replace("{body}", (body or "")[:6000]))
-    resp = requests.post(
-        f"{BASE_URL}/chat/completions",
-        headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
-        json={
-            "model": MODEL,
-            "messages": [{"role": "user", "content": content}],
-            "response_format": {"type": "json_object"},
-            "temperature": 0.2,
-        },
-        timeout=120,
-    )
-    resp.raise_for_status()
-    d = json.loads(resp.json()["choices"][0]["message"]["content"])
+    d = chat_json(content, temperature=0.2)
 
     def dim(key, cap):
         o = d.get(key) or {}
@@ -112,12 +87,8 @@ def main():
     force = "--force" in argv
     dirs = [a for a in argv if not a.startswith("--")]
 
-    if not API_KEY:
-        print("[ERROR] 未配置 OPENAI_API_KEY")
-        sys.exit(1)
-
-    metas = ([Path(d) / "metadata.json" for d in dirs] if dirs
-             else sorted((PROJECT_ROOT / "archive").glob("*/metadata.json")))
+    require_api_key()
+    metas = iter_metadata(dirs)
 
     done = skipped = failed = 0
     for mp in metas:

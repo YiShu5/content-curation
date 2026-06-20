@@ -11,43 +11,125 @@
 {% endblock %}
 
 {% block content %}
+{% set vcolors = {'必读':'#EF4444','强烈推荐':'#F26B3A','推荐':'#10B981','一般':'#9CA3AF','可跳过':'#CBD5E1'} %}
 
-{% if topics %}
-<div class="topic-filter-wrap">
-    <div class="topic-filter">
-        <button class="topic-btn active" data-topic="">全部</button>
-        {% for t in topics %}
-        <button class="topic-btn" data-topic="{{ t }}">{{ t }}</button>
-        {% endfor %}
+<div class="home-layout">
+    <!-- 左侧边栏：话题 + 质量评级筛选（可收起） -->
+    <aside class="home-sidebar" id="sidebar">
+        <div class="side-head">
+            <span class="side-logo">降</span>
+            <button class="side-toggle" id="sideToggle" aria-label="收起/展开侧栏" title="收起/展开侧栏">«</button>
+        </div>
+        <div class="side-body">
+            {% if topics %}
+            <div class="side-group">
+                <div class="side-title">话题</div>
+                <button class="side-item active" data-topic="">全部<span class="side-count">{{ records|length }}</span></button>
+                {% for t in topics %}
+                <button class="side-item" data-topic="{{ t }}">{{ t }}<span class="side-count">{{ topic_counts[t] }}</span></button>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% if verdicts %}
+            <div class="side-group">
+                <div class="side-title">质量评级</div>
+                <button class="side-item active" data-verdict="">全部<span class="side-count">{{ records|length }}</span></button>
+                {% for v in verdicts %}
+                <button class="side-item" data-verdict="{{ v.name }}">
+                    <i class="side-dot" style="background:{{ vcolors.get(v.name, '#9CA3AF') }}"></i>{{ v.name }}<span class="side-count">{{ v.count }}</span>
+                </button>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </aside>
+
+    <!-- 右侧内容区：今日信号 + 卡片网格 -->
+    <div class="home-main">
+        {% if signals %}
+        {% include "_signals.html" %}
+        {% endif %}
+        <section class="card-grid" id="card-grid">
+            {% if not records %}
+            <div class="empty-state">
+                <p>暂无内容，请先通过工作流抓取并同步到飞书。</p>
+            </div>
+            {% endif %}
+            {% for r in records %}
+            {% include "_card.html" %}
+            {% endfor %}
+        </section>
     </div>
 </div>
-{% endif %}
 
-<section class="card-grid" id="card-grid">
-    {% if not records %}
-    <div class="empty-state">
-        <p>暂无内容，请先通过工作流抓取并同步到飞书。</p>
-    </div>
-    {% endif %}
-
-    {% for r in records %}
-    {% include "_card.html" %}
-    {% endfor %}
-</section>
+<!-- 悬浮搜索（哆啦A梦四维口袋） -->
+<div class="pocket-search" id="pocket">
+    <button class="pocket-btn" id="pocketBtn" aria-label="搜索 (⌘K)" title="用一句话找内容 (⌘K)">
+        <svg viewBox="0 0 56 56" width="30" height="30" aria-hidden="true">
+            <!-- 四维口袋：白底气泡 + 蓝色袋口 + 红色绳结 -->
+            <circle cx="28" cy="28" r="22" fill="#fff"/>
+            <path d="M9 27 a19 19 0 0 0 38 0 z" fill="#EAF6FC"/>
+            <path d="M9 27 Q28 39 47 27" fill="none" stroke="#2BA7DF" stroke-width="3.4" stroke-linecap="round"/>
+            <circle cx="28" cy="17.5" r="3.4" fill="#E23B3B"/>
+            <path d="M24.8 17.5 L18 13.5 M31.2 17.5 L38 13.5" stroke="#E23B3B" stroke-width="2.4" stroke-linecap="round"/>
+        </svg>
+    </button>
+    <form class="pocket-panel" action="/search" method="get" role="search">
+        <input type="search" name="q" id="pocketInput" placeholder="用一句话找内容" autocomplete="off">
+        <kbd class="pocket-kbd">⌘K</kbd>
+        <button type="submit" class="pocket-go" aria-label="搜索">找</button>
+    </form>
+</div>
 
 <script>
+// 联合筛选：话题 AND 质量评级
 (function () {
-    const btns = document.querySelectorAll('.topic-btn');
+    const topicBtns = document.querySelectorAll('.side-item[data-topic]');
+    const verdictBtns = document.querySelectorAll('.side-item[data-verdict]');
     const cards = document.querySelectorAll('#card-grid .card');
-    btns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            btns.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            const topic = btn.dataset.topic;
-            cards.forEach(card => {
-                card.style.display = (!topic || card.dataset.topic === topic) ? '' : 'none';
-            });
+    let curTopic = '', curVerdict = '';
+    function apply() {
+        cards.forEach(c => {
+            const okT = !curTopic || c.dataset.topic === curTopic;
+            const okV = !curVerdict || c.dataset.verdict === curVerdict;
+            c.style.display = (okT && okV) ? '' : 'none';
         });
+    }
+    topicBtns.forEach(b => b.addEventListener('click', () => {
+        topicBtns.forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        curTopic = b.dataset.topic; apply();
+    }));
+    verdictBtns.forEach(b => b.addEventListener('click', () => {
+        verdictBtns.forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        curVerdict = b.dataset.verdict; apply();
+    }));
+})();
+
+// 侧栏收起 / 展开（记忆状态）
+(function () {
+    const sidebar = document.getElementById('sidebar');
+    const toggle = document.getElementById('sideToggle');
+    if (!sidebar || !toggle) return;
+    if (localStorage.getItem('nf_sidebar') === 'collapsed') sidebar.classList.add('collapsed');
+    toggle.addEventListener('click', () => {
+        const collapsed = sidebar.classList.toggle('collapsed');
+        localStorage.setItem('nf_sidebar', collapsed ? 'collapsed' : 'open');
+    });
+})();
+
+// 四维口袋搜索：点击展开 / ⌘K 唤起 / Esc 收起
+(function () {
+    const pocket = document.getElementById('pocket');
+    const btn = document.getElementById('pocketBtn');
+    const input = document.getElementById('pocketInput');
+    function open() { pocket.classList.add('open'); setTimeout(() => input.focus(), 60); }
+    function close() { pocket.classList.remove('open'); input.blur(); }
+    btn.addEventListener('click', () => pocket.classList.contains('open') ? close() : open());
+    document.addEventListener('keydown', e => {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); open(); }
+        else if (e.key === 'Escape' && pocket.classList.contains('open')) close();
     });
 })();
 </script>

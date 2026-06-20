@@ -341,7 +341,7 @@ def get_transcript_baoyu(url: str, cache_dir: Path) -> str:
         cmd = ["npx", "-y", "bun", str(skill_script)]
     out_dir = str(cache_dir / "baoyu-cache")
     result = subprocess.run(
-        cmd + [url, "--no-timestamps", "--languages", "zh-Hans,zh,en", "--output-dir", out_dir],
+        cmd + [url, "--languages", "zh-Hans,zh,en", "--output-dir", out_dir],
         capture_output=True, text=True, encoding="utf-8", timeout=120,
         cwd=str(PROJECT_ROOT),
     )

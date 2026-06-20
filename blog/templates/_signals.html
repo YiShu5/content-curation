@@ -1,0 +1,29 @@
+<section class="signals">
+    <div class="signals-head">
+        <span class="signals-title">⚡ 今日信号</span>
+        <span class="signals-sub">AI HOT 24 小时精选 · 关联你的知识库</span>
+    </div>
+    <div class="signals-list">
+        {% for s in signals %}
+        <div class="signal-item">
+            <div class="signal-news">
+                {% if s.category %}<span class="signal-cat">{{ s.category }}</span>{% endif %}
+                <a href="{{ s.url }}" target="_blank" rel="noopener" class="signal-news-title">{{ s.title }}</a>
+                <span class="signal-source">{{ s.source }}</span>
+            </div>
+            {% if s.summary %}<p class="signal-summary">{{ s.summary }}</p>{% endif %}
+            <div class="signal-links">
+                <span class="signal-links-label">📺 你库里的相关深度内容</span>
+                {% for l in s.links %}
+                <a href="{{ l.deeplink }}" target="_blank" rel="noopener" class="signal-link">
+                    <span class="signal-link-platform">{{ l.platform }}</span>
+                    <span class="signal-link-title">{{ l.title }}</span>
+                    {% if l.ts %}<span class="signal-link-ts">▶ {{ l.ts }}</span>{% endif %}
+                    <span class="signal-link-match">{{ l.match }}%</span>
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</section>
