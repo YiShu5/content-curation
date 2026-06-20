@@ -65,14 +65,14 @@
             {% if article.score_total is not none %}
             {% set total = article.score_total %}
             {% set sc = article.scores %}
-            {% set ai = sc.ai_relevance.score if sc.ai_relevance else 0 %}
-            {% set st = sc.storytelling.score if sc.storytelling else 0 %}
-            {% set bn = sc.bonus.score if sc.bonus else 0 %}
-            {% set r_ai = ai / 40 %}{% set r_st = st / 30 %}{% set r_bn = bn / 30 %}
+            {% set ins = sc.insight.score if sc.insight else 0 %}
+            {% set src = sc.source.score if sc.source else 0 %}
+            {% set sto = sc.storytelling.score if sc.storytelling else 0 %}
+            {% set r_in = ins / 50 %}{% set r_st = sto / 25 %}{% set r_so = src / 25 %}
             {% set cx = 100 %}{% set cy = 98 %}{% set R = 70 %}
-            {% set ax = cx %}{% set ay = (cy - R * r_ai) | round(1) %}
+            {% set ax = cx %}{% set ay = (cy - R * r_in) | round(1) %}
             {% set sx = (cx + R * r_st * 0.866) | round(1) %}{% set sy = (cy + R * r_st * 0.5) | round(1) %}
-            {% set bx = (cx - R * r_bn * 0.866) | round(1) %}{% set by = (cy + R * r_bn * 0.5) | round(1) %}
+            {% set bx = (cx - R * r_so * 0.866) | round(1) %}{% set by = (cy + R * r_so * 0.5) | round(1) %}
             <div class="d-score-card d-score-radar">
                 <div class="d-radar-chart">
                     <svg viewBox="0 0 200 180" width="170" height="153" aria-label="评分雷达图">
@@ -85,9 +85,9 @@
                         <circle cx="{{ ax }}" cy="{{ ay }}" r="3" fill="#3B82F6"/>
                         <circle cx="{{ sx }}" cy="{{ sy }}" r="3" fill="#8B5CF6"/>
                         <circle cx="{{ bx }}" cy="{{ by }}" r="3" fill="#10B981"/>
-                        <text x="100" y="18" text-anchor="middle" font-size="12" fill="#6B7280">AI相关性</text>
-                        <text x="178" y="148" text-anchor="middle" font-size="12" fill="#6B7280">故事性</text>
-                        <text x="22" y="148" text-anchor="middle" font-size="12" fill="#6B7280">加分项</text>
+                        <text x="100" y="18" text-anchor="middle" font-size="12" fill="#6B7280">洞察</text>
+                        <text x="180" y="148" text-anchor="middle" font-size="12" fill="#6B7280">故事</text>
+                        <text x="20" y="148" text-anchor="middle" font-size="12" fill="#6B7280">信源</text>
                     </svg>
                 </div>
                 <div class="d-radar-side">
@@ -101,9 +101,9 @@
                         {%- endif %}
                     </div>
                     <div class="d-radar-legend">
-                        <span><i class="d-dot" style="background:#3B82F6"></i>AI相关性<b>{{ ai }}</b><small>/40</small></span>
-                        <span><i class="d-dot" style="background:#8B5CF6"></i>故事性<b>{{ st }}</b><small>/30</small></span>
-                        <span><i class="d-dot" style="background:#10B981"></i>加分项<b>{{ bn }}</b><small>/30</small></span>
+                        <span><i class="d-dot" style="background:#3B82F6"></i>洞察原创<b>{{ ins }}</b><small>/50</small></span>
+                        <span><i class="d-dot" style="background:#8B5CF6"></i>故事可读<b>{{ sto }}</b><small>/25</small></span>
+                        <span><i class="d-dot" style="background:#10B981"></i>信源质量<b>{{ src }}</b><small>/25</small></span>
                     </div>
                 </div>
             </div>
