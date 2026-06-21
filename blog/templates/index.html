@@ -46,7 +46,7 @@
 
     <!-- 右侧内容区：今日信号 + 卡片网格 -->
     <div class="home-main">
-        {% if signals %}
+        {% if signals or signal_ran %}
         {% include "_signals.html" %}
         {% endif %}
         <section class="card-grid" id="card-grid">

@@ -12,14 +12,18 @@
 - `config/.env` 存所有密钥（飞书/DeepSeek/智谱/BibiGPT），已 gitignore，**绝不入库**。
 - `archive/`、`blog/data/`、`.venv/`、`blog/.venv/`、`.claude/` 均已忽略（生成物/本地）。
 
-## 数据流与匹配
-- 博客以**飞书多维表格为真相源**（`fetch_records`）；本地 `archive/` 只做增强。
-- enrich 先按 `feishu_record_id` 匹配，再按视频 id（`_content_key`，blog/app.py）兜底——所以重跑生成、未回填 record_id 的归档也能对上，同一视频的重复飞书记录共享一份归档。
+## 数据流（2026-06 已改为「本地 archive 为真相源」）
+- 博客直接读 `archive/*/metadata.json`（`load_archive_records`，blog/app.py），**不再依赖飞书**。新抓内容刷新即见。
+- 记录 `id` = metadata 的 `id`（视频 id / audio-xxx）；详情页 `/article/<id>`、向量索引、今日信号都按这个 id 对齐。
+- 封面走本地：`/cover-local/<archive_dir>` 直接发 archive 里的 cover.*。
+- ⚠️ 改完 fetch 新内容后，**首页/详情立刻可见(实时读 archive)，但语义搜索/相关推荐/今日信号要 `run.sh embed` 重建索引才会纳入**。
+- 旧的飞书读取链路（`fetch_records`/`_enrich_from_local`/`_build_local_index`/`cover_proxy`）保留为 legacy，未删但已不被路由调用。
 
 ## 评分体系（2026-06 已重构）
 - 现行三维：**洞察原创 0-50 + 信源质量 0-25 + 故事可读 0-25**（旧 ai_relevance/storytelling/bonus 已废弃，旧分备份在 metadata 的 `scores_v1`）。
-- ⚠️ **已知遗留**：`scripts/sync-feishu.js` 和飞书表的评分列仍是旧维度。重新同步飞书前必须先改 sync-feishu.js 的评分字段，否则会写错/写空。
+- 同步脚本已对齐新维度：`sync-feishu.js` 推 洞察原创/信源质量/故事可读（数字列，缺失自动建），`sync-feishu-doc.js` 文档同理。飞书表里旧的 AI相关性/故事性/加分项 列已不再写入（可手动删）。
 - 重打分用 `scripts/rescore.py`（从已有摘要重算，不重跑整条流水线）。
+- ⚠️ `sync-feishu.js` 只**新建**记录、不更新已有；重跑生成的 archive 其 `feishu_record_id` 为 null，直接 sync 会产生重复记录。
 
 ## 转录
 - BibiGPT 为主（按**时长**计费，注意余额），baoyu 免费降级**仅支持 YouTube**。

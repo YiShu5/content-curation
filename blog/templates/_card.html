@@ -1,7 +1,7 @@
 <a href="/article/{{ r.id }}" class="card" target="_blank" data-topic="{{ r.topic or '' }}" data-verdict="{{ r.score_verdict or '' }}">
     <div class="card-cover">
-        {% if r.cover_token %}
-        <img src="/cover/{{ r.cover_token }}" alt="{{ r.title }}" loading="lazy">
+        {% if r.cover_url %}
+        <img src="{{ r.cover_url }}" alt="{{ r.title }}" loading="lazy">
         {% else %}
         <div class="card-cover-placeholder"></div>
         {% endif %}

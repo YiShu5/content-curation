@@ -18,6 +18,14 @@ youtube:
     url: "https://www.youtube.com/@a16z/videos"
     limit: 3
 
+  - name: "Tina黄"
+    url: "https://www.youtube.com/@tinahuang1/videos"
+    limit: 2
+
+  - name: "吴恩达 DeepLearningAI"
+    url: "https://www.youtube.com/@Deeplearningai/videos"
+    limit: 2
+
   # - name: "Acquired"
   #   url: "https://www.youtube.com/@acquiredfm/videos"
   #   limit: 2

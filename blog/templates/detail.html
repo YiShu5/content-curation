@@ -13,8 +13,8 @@
 
     <!-- ── Hero ── -->
     <div class="d-hero">
-        {% if article.cover_token %}
-        <img src="/cover/{{ article.cover_token }}" alt="{{ article.title }}" class="d-hero-img">
+        {% if article.cover_url %}
+        <img src="{{ article.cover_url }}" alt="{{ article.title }}" class="d-hero-img">
         {% endif %}
         <div class="d-hero-overlay"></div>
         <div class="d-hero-body">

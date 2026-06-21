@@ -1,17 +1,23 @@
 <section class="signals">
     <div class="signals-head">
-        <span class="signals-title">⚡ 今日信号</span>
-        <span class="signals-sub">AI HOT 24 小时精选 · 关联你的知识库</span>
+        <span class="signals-title">🔥 今日 AI 必读</span>
+        <span class="signals-sub">AI HOT 全网 · {% if signals %}已降噪到 {{ signals|length }} 条{% else %}今日无 top-0 大事{% endif %}</span>
     </div>
+    {% if not signals %}
+    <div class="signals-empty">今天 AI 圈没有 top-0 级大事 —— 没消息，也是一种降噪 🔇</div>
+    {% endif %}
     <div class="signals-list">
         {% for s in signals %}
         <div class="signal-item">
             <div class="signal-news">
+                <span class="signal-rank">{{ loop.index }}</span>
                 {% if s.category %}<span class="signal-cat">{{ s.category }}</span>{% endif %}
                 <a href="{{ s.url }}" target="_blank" rel="noopener" class="signal-news-title">{{ s.title }}</a>
                 <span class="signal-source">{{ s.source }}</span>
             </div>
+            {% if s.why %}<p class="signal-why"><span class="signal-why-tag">为什么重要</span>{{ s.why }}</p>{% endif %}
             {% if s.summary %}<p class="signal-summary">{{ s.summary }}</p>{% endif %}
+            {% if s.links %}
             <div class="signal-links">
                 <span class="signal-links-label">📺 你库里的相关深度内容</span>
                 {% for l in s.links %}
@@ -23,6 +29,7 @@
                 </a>
                 {% endfor %}
             </div>
+            {% endif %}
         </div>
         {% endfor %}
     </div>

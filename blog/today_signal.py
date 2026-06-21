@@ -12,6 +12,7 @@
 """
 import hashlib
 import json
+import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -38,10 +39,11 @@ ARCHIVE_ROOT = Path(__file__).parent.parent / "archive"
 
 AIHOT_TTL = 1800        # AI HOT 缓存 30 分钟
 SIGNAL_TTL = 1800       # 组装信号缓存 30 分钟
-MAX_SIGNALS = 5
+TOP_K = 3               # 每天「今日必读」条数（最狠降噪）
+PRESELECT = 15          # AI HOT 分粗筛保留数，再交 DeepSeek 精排
 MAX_LINKS = 2
 CHUNK_SECONDS = 15      # transcript 切块窗口
-MIN_DOC_SCORE = 0.32    # 新闻↔内容 文档级匹配阈值
+MIN_DOC_SCORE = 0.45    # 新闻↔内容 文档级匹配阈值（宁可少而准）
 MIN_CHUNK_SCORE = 0.20  # 块级时间戳匹配阈值（低于此说明定位不可靠，仍给链接但不带时间戳）
 
 _TS_RE = re.compile(r'\[(\d{2}):(\d{2}):(\d{2})\]')
@@ -213,12 +215,64 @@ def _archive_by_key():
     return out
 
 
-def get_signals(records):
-    """主入口。records = 已 enrich 的飞书记录列表（含 id/link/platform/title/cover_token）。
-    返回信号列表；任何环节缺依赖/出错由调用方 try/except 兜底。"""
-    if np is None:
+_RANK_PROMPT = """你是 AI 行业主编。下面是今天全网抓取的 AI 资讯候选，请选出最重要的 {k} 条「今日必读」。
+
+判定标准（重要性从高到低）：
+- 最高：重大模型发布 / 能力突破（如某模型上多模态）、新范式或新概念（如 loop 工程）、影响全行业的大事
+- 低（不要选）：教程、小工具、个人随感、八卦、营销
+
+请选出**最多 {k} 条**真正重要的，按重要性从高到低排序（第 1 条最重磅）：
+- 优先：重大模型发布/能力突破、新范式或新概念、影响全行业的大事
+- 教程/工具：只有当它代表新范式或被业界广泛关注才选
+- 纯营销、蹭节日活动、个人随感、八卦：一律不选
+**条数可少于 {k}（哪怕只有 1 条）；绝不为凑数收录低价值内容。**
+
+只输出 JSON：{{"top":[{{"index":序号,"why":"一句话说清为什么重要"}}, ...]}}（index 基于下面编号）
+
+候选：
+{items}
+"""
+
+
+def _chat_json(prompt, temperature=0.2):
+    """调用 DeepSeek（OpenAI 兼容）做重要性精排，强制 JSON 输出。"""
+    key = os.getenv("OPENAI_API_KEY", "")
+    base = os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com").rstrip("/")
+    model = os.getenv("OPENAI_MODEL", "deepseek-chat")
+    resp = requests.post(
+        f"{base}/chat/completions",
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json={"model": model, "messages": [{"role": "user", "content": prompt}],
+              "response_format": {"type": "json_object"}, "temperature": temperature},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return json.loads(resp.json()["choices"][0]["message"]["content"])
+
+
+def _rank_important(news, k=TOP_K):
+    """AI HOT 分粗筛（tip 沉底）→ DeepSeek 按重要性精排，返回 top-k（带 why）。"""
+    pool = sorted(news, key=lambda n: (1 if n.get("category") == "tip" else 0,
+                                       -(n.get("score") or 0)))[:PRESELECT]
+    if not pool:
         return []
-    # 缓存
+    lines = [f"{i+1}. [{n.get('category') or '-'}|{n.get('score') or 0}分] "
+             f"{n.get('title','')}｜{(n.get('summary') or '')[:80]}"
+             for i, n in enumerate(pool)]
+    data = _chat_json(_RANK_PROMPT.format(k=k, items="\n".join(lines)))
+    out = []
+    for item in (data.get("top") or [])[:k]:
+        idx = item.get("index")
+        if isinstance(idx, int) and 1 <= idx <= len(pool):
+            n = dict(pool[idx - 1])
+            n["why"] = (item.get("why") or "").strip()
+            out.append(n)
+    return out
+
+
+def get_signals(records):
+    """主入口：AI HOT 每日 AI 洪流 → DeepSeek 重要性精排出 top-K「今日必读」（降噪核心），
+    每条再附上库里相关深度内容（可选）。任何环节缺依赖/出错由调用方 try/except 兜底。"""
     now = time.time()
     if SIGNAL_CACHE.exists():
         try:
@@ -229,77 +283,78 @@ def get_signals(records):
             pass
 
     news = fetch_aihot()
-    index = embeddings.load_index()
-    if not news or not index:
+    if not news:
         return []
 
-    by_id = {r.get("id"): r for r in records}
+    # ① 降噪核心：粗筛 + DeepSeek 精排出 top-K 必读
+    top = _rank_important(news, TOP_K)
+    if not top:
+        return []
+
+    # ② 附属：给每条必读找库里相关深度内容（向量匹配，全局去重；缺依赖/无匹配则不附）
     arch_by_key = _archive_by_key()
+    index = embeddings.load_index()
+    mat_n, ids, by_id = None, [], {}
+    if np is not None and index and records:
+        by_id = {r.get("id"): r for r in records}
+        vecs = []
+        for rid, item in index.items():
+            if rid in by_id and item.get("vector"):
+                ids.append(rid)
+                vecs.append(item["vector"])
+        if vecs:
+            mat = np.asarray(vecs, dtype=np.float32)
+            mat_n = mat / (np.linalg.norm(mat, axis=1, keepdims=True) + 1e-8)
 
-    # 文档级向量矩阵（与新闻比对）
-    ids, mat = [], []
-    for rid, item in index.items():
-        if rid in by_id and item.get("vector"):
-            ids.append(rid)
-            mat.append(item["vector"])
-    if not ids:
-        return []
-    mat = np.asarray(mat, dtype=np.float32)
-    mat_n = mat / (np.linalg.norm(mat, axis=1, keepdims=True) + 1e-8)  # 归一化一次，循环内复用
-
-    # 批量向量化新闻（标题 + 摘要）
-    texts = [((n.get("title") or "") + "。" + (n.get("summary") or "")).strip() for n in news]
-    news_vecs = np.asarray(embeddings.embed_texts(texts), dtype=np.float32)
-
-    candidates = []
-    for n, nv in zip(news, news_vecs):
-        sims = mat_n @ (nv / (np.linalg.norm(nv) + 1e-8))
-        order = np.argsort(-sims)
-        links, seen = [], set()
-        for j in order:
-            score = float(sims[j])
-            if score < MIN_DOC_SCORE or len(links) >= MAX_LINKS:
-                break
-            rec = by_id[ids[j]]
-            title = rec.get("title", "")
-            if title in seen:
-                continue
-            seen.add(title)
-            # 时间戳定位
-            arch = arch_by_key.get(_content_key(rec.get("link") or ""))
-            if not arch:
-                continue
-            loc = _locate_timestamp(arch, nv)
-            if loc is None:
-                continue  # transcript 无时间戳 → 跳过这个关联
-            sec, snippet, cscore = loc
-            url = rec.get("link") or ""
-            # 仅当平台支持深链跳转、且定位足够可靠时，才展示可跳转的时间戳
-            show_ts = _supports_ts(url) and cscore >= MIN_CHUNK_SCORE
-            links.append({
-                "record_id": rec.get("id"),
-                "title": title,
-                "platform": rec.get("platform", ""),
-                "cover_token": rec.get("cover_token", ""),
-                "deeplink": _deeplink(url, sec) if show_ts else url,
-                "ts": _fmt_ts(sec) if show_ts else "",
-                "snippet": snippet if show_ts else "",
-                "match": round(score * 100),
-            })
-        if links:  # 只保留能关联到本地深度内容的新闻
-            candidates.append({
-                "title": n.get("title", ""),
-                "source": n.get("source", ""),
-                "url": n.get("url", ""),
-                "summary": (n.get("summary") or "")[:120],
-                "category": n.get("category") or "",
-                "score": n.get("score") or 0,
-                "best": links[0]["match"],
-                "links": links,
-            })
-
-    candidates.sort(key=lambda x: -x["best"])
-    signals = candidates[:MAX_SIGNALS]
+    used = set()
+    signals = []
+    for n in top:
+        links = []
+        if mat_n is not None:
+            try:
+                nv = np.asarray(embeddings.embed_query(
+                    ((n.get("title") or "") + "。" + (n.get("summary") or "")).strip()),
+                    dtype=np.float32)
+                sims = mat_n @ (nv / (np.linalg.norm(nv) + 1e-8))
+                for j in np.argsort(-sims):
+                    if len(links) >= MAX_LINKS:
+                        break
+                    score = float(sims[j])
+                    if score < MIN_DOC_SCORE:
+                        break
+                    rec = by_id[ids[j]]
+                    rid = rec.get("id")
+                    if rid in used:
+                        continue
+                    arch = arch_by_key.get(_content_key(rec.get("link") or ""))
+                    if not arch:
+                        continue
+                    loc = _locate_timestamp(arch, nv)
+                    if loc is None:
+                        continue
+                    sec, snippet, cscore = loc
+                    url = rec.get("link") or ""
+                    show_ts = _supports_ts(url) and cscore >= MIN_CHUNK_SCORE
+                    used.add(rid)
+                    links.append({
+                        "record_id": rid,
+                        "title": rec.get("title", ""),
+                        "platform": rec.get("platform", ""),
+                        "deeplink": _deeplink(url, sec) if show_ts else url,
+                        "ts": _fmt_ts(sec) if show_ts else "",
+                        "match": round(score * 100),
+                    })
+            except Exception:
+                links = []
+        signals.append({
+            "title": n.get("title", ""),
+            "source": n.get("source", ""),
+            "url": n.get("url", ""),
+            "summary": (n.get("summary") or "")[:120],
+            "category": n.get("category") or "",
+            "why": n.get("why", ""),
+            "links": links,
+        })
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     SIGNAL_CACHE.write_text(

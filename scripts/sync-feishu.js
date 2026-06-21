@@ -181,10 +181,11 @@ function buildBitableRecord(metadata, fileToken) {
   if (metadata.score_total != null) {
     record['总分'] = metadata.score_total;
     record['评级'] = metadata.score_verdict || '';
+    // 评分维度（新体系：洞察原创 / 信源质量 / 故事可读）
     const sc = metadata.scores || {};
-    if (sc.ai_relevance?.score != null) record['AI相关性'] = sc.ai_relevance.score;
-    if (sc.storytelling?.score != null) record['故事性'] = sc.storytelling.score;
-    if (sc.bonus?.score != null) record['加分项'] = sc.bonus.score;
+    if (sc.insight?.score != null) record['洞察原创'] = sc.insight.score;
+    if (sc.source?.score != null) record['信源质量'] = sc.source.score;
+    if (sc.storytelling?.score != null) record['故事可读'] = sc.storytelling.score;
   }
 
   // Date field (Feishu requires ms timestamp)
@@ -239,6 +240,29 @@ async function ensureSummaryTextField(token) {
     console.log('  字段创建成功');
   } else {
     console.warn(`  [WARN] 字段创建失败: ${JSON.stringify(createData)}`);
+  }
+}
+
+// ── 确保新评分维度字段存在（数字：洞察原创/信源质量/故事可读）────────────────
+async function ensureScoreFields(token) {
+  const names = ['洞察原创', '信源质量', '故事可读'];
+  const url = `${FEISHU_BASE}/open-apis/bitable/v1/apps/${APP_TOKEN}/tables/${TABLE_ID}/fields`;
+  const resp = await feishuFetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await resp.json();
+  if (data.code !== 0) return;
+  const existing = new Set((data.data?.items || []).map(f => f.field_name));
+  for (const name of names) {
+    if (existing.has(name)) continue;
+    console.log(`  创建字段：${name}（数字）...`);
+    const createResp = await feishuFetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ field_name: name, type: 2 }),
+    });
+    const createData = await createResp.json();
+    if (createData.code !== 0) {
+      console.warn(`  [WARN] 字段创建失败(${name}): ${JSON.stringify(createData)}`);
+    }
   }
 }
 
@@ -336,6 +360,7 @@ async function main() {
   try {
     await ensureSummaryTextField(token);
     await ensureTopicField(token);
+    await ensureScoreFields(token);
   } catch (err) {
     console.warn(`  [WARN] 检查字段失败: ${err.message}`);
   }

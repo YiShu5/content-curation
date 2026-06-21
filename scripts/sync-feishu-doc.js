@@ -189,20 +189,17 @@ function buildDocumentBlocks(metadata) {
     ]));
 
     const dims = [
-      { label: 'AI 相关性', data: scores.ai_relevance, max: 40 },
-      { label: '故事性', data: scores.storytelling, max: 30 },
-      { label: '加分项', data: scores.bonus, max: 30 },
+      { label: '洞察原创', data: scores.insight, max: 50 },
+      { label: '信源质量', data: scores.source, max: 25 },
+      { label: '故事可读', data: scores.storytelling, max: 25 },
     ];
 
     for (const dim of dims) {
       const score = dim.data?.score ?? '—';
       const reason = dim.data?.reason || '';
-      const items = dim.label === '加分项' && dim.data?.items?.length
-        ? `  [${dim.data.items.join('、')}]`
-        : '';
       blocks.push(bulletItem([
         makeTextRun(`${dim.label}  `, { bold: true }),
-        makeTextRun(`${score}/${dim.max}　${reason}${items}`),
+        makeTextRun(`${score}/${dim.max}　${reason}`),
       ]));
     }
 

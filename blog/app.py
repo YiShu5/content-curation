@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 import requests
-from flask import Flask, render_template, abort, Response, request
+from flask import Flask, render_template, abort, Response, request, send_file
 
 import re as _re
 
@@ -199,20 +199,73 @@ def _num_value(field):
     return None
 
 
+# ── 本地 archive 作为真相源（不依赖飞书）─────────────────────────────────────
+_PLATFORM_LABELS = {"youtube": "YouTube", "bilibili": "Bilibili",
+                    "xiaoyuzhou": "小宇宙", "audio": "音频"}
+_archive_cache = {"records": [], "expiry": 0}
+
+
+def load_archive_records():
+    """直接从本地 archive/*/metadata.json 读取记录，作为博客真相源。
+    metadata 已含全部展示字段（标题/评分/金句/嘉宾等），无需再 enrich。"""
+    now = time.time()
+    if _archive_cache["records"] and now < _archive_cache["expiry"]:
+        return _archive_cache["records"]
+    records = []
+    root = Path(__file__).parent.parent / "archive"
+    if root.exists():
+        # 目录名以 upload_date 开头，倒序 = 最新在前
+        for d in sorted((p for p in root.iterdir() if p.is_dir()),
+                        key=lambda p: p.name, reverse=True):
+            mp = d / "metadata.json"
+            if not mp.exists():
+                continue
+            try:
+                m = json.loads(mp.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if not m.get("rewrite_complete"):
+                continue
+            up = str(m.get("upload_date") or "")
+            pub = f"{up[:4]}-{up[4:6]}-{up[6:8]}" if len(up) == 8 else ""
+            dur = m.get("duration") or 0
+            cover = next((c.name for c in sorted(d.glob("cover.*"))), "")
+            guests = m.get("guests") or []
+            records.append({
+                "id": m.get("id") or d.name,
+                "title": m.get("chinese_title") or m.get("title", ""),
+                "original_title": m.get("title", ""),
+                "platform": _PLATFORM_LABELS.get(m.get("platform", ""), m.get("platform", "")),
+                "creator": m.get("uploader", ""),
+                "pub_date": pub,
+                "link": m.get("url", ""),
+                "duration": round(dur / 60) if dur else 0,
+                "guests": "、".join(guests) if isinstance(guests, list) else (guests or ""),
+                "summary": m.get("deep_summary", ""),
+                "cover_url": f"/cover-local/{d.name}" if cover else "",
+                "topic": m.get("topic", ""),
+                "score_total": m.get("score_total"),
+                "score_verdict": m.get("score_verdict", ""),
+                "scores": m.get("scores", {}),
+                "key_quotes": m.get("key_quotes", []),
+                "core_ideas": m.get("core_ideas", []),
+                "key_insights": m.get("key_insights", ""),
+                "summary_md": m.get("deep_summary", ""),
+                "why_watch": m.get("why_watch", ""),
+                "guest_info": m.get("guest_info", []),
+            })
+    _archive_cache["records"] = records
+    _archive_cache["expiry"] = now + 30  # 30s 轻缓存，新抓内容很快可见
+    return records
+
+
 # ── 路由 ──────────────────────────────────────────────────────────────────
 TOPICS = ['AI 编程', 'AI 产品', 'AI 创业', 'AI 商业', '投资', '个人效率', '其他']
 
 
 @app.route("/")
 def index():
-    try:
-        records = fetch_records()
-    except Exception as e:
-        records = []
-        print(f"[ERROR] 获取数据失败: {e}")
-    # 用本地 archive 的中文标题覆盖可能的英文标题
-    for r in records:
-        _enrich_from_local(r)
+    records = load_archive_records()
     # 只保留实际有内容的话题（带数量）
     used_topics = [t for t in TOPICS if any(r.get("topic") == t for r in records)]
     topic_counts = {t: sum(1 for r in records if r.get("topic") == t) for t in used_topics}
@@ -224,15 +277,18 @@ def index():
         if v:
             _vc[v] = _vc.get(v, 0) + 1
     verdicts = [{"name": v, "count": _vc[v]} for v in _verdict_order if v in _vc]
-    # 今日信号（独立模块；任何失败都不影响页面其余部分）
+    # 今日必读（独立模块；任何失败都不影响页面其余部分）
     signals = []
+    signal_ran = False  # 区分「跑成功但降噪后为 0」与「出错」
     try:
         import today_signal
         signals = today_signal.get_signals(records)
+        signal_ran = True
     except Exception as e:
-        print(f"[WARN] 今日信号生成失败（不影响页面）: {e}")
+        print(f"[WARN] 今日必读生成失败（不影响页面）: {e}")
     return render_template("index.html", records=records, topics=used_topics,
-                           topic_counts=topic_counts, verdicts=verdicts, signals=signals)
+                           topic_counts=topic_counts, verdicts=verdicts,
+                           signals=signals, signal_ran=signal_ran)
 
 
 # 本地 archive 索引缓存：
@@ -332,15 +388,7 @@ def search():
     if not query:
         return render_template("search.html", query="", results=[], error="")
 
-    try:
-        records = fetch_records()
-    except Exception as e:
-        print(f"[ERROR] 获取数据失败: {e}")
-        return render_template("search.html", query=query, results=[],
-                               error="获取内容数据失败，请稍后重试。")
-    for r in records:
-        _enrich_from_local(r)
-
+    records = load_archive_records()
     import embeddings
     try:
         hits = embeddings.search(query, records)
@@ -362,30 +410,35 @@ def search():
 
 @app.route("/article/<record_id>")
 def detail(record_id):
-    try:
-        records = fetch_records()
-    except Exception as e:
-        abort(500)
-        return
-
+    records = load_archive_records()
     article = next((r for r in records if r["id"] == record_id), None)
     if not article:
         abort(404)
-    # 补充本地详细数据（金句、核心观点等）
-    article = _enrich_from_local(article)
 
     # 相关推荐（基于向量索引，零 API 成本；索引缺失/出错时静默跳过）
     related = []
     try:
         import embeddings
         for rec, score in embeddings.related(record_id, records):
-            rec = _enrich_from_local(dict(rec))
+            rec = dict(rec)
             rec["score"] = round(score * 100)
             related.append(rec)
     except Exception as e:
         print(f"[WARN] 相关推荐生成失败: {e}")
 
     return render_template("detail.html", article=article, related=related)
+
+
+@app.route("/cover-local/<name>")
+def cover_local(name):
+    """从本地 archive 目录返回封面图（博客读 archive 模式下用）"""
+    if "/" in name or ".." in name:
+        abort(404)
+    d = Path(__file__).parent.parent / "archive" / name
+    covers = sorted(d.glob("cover.*")) if d.is_dir() else []
+    if not covers:
+        abort(404)
+    return send_file(covers[0], max_age=86400)
 
 
 @app.route("/cover/<file_token>")

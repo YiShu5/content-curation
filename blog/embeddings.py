@@ -297,11 +297,9 @@ def related(record_id, records, top_k=3, min_score=0.30):
 # ── CLI: python embeddings.py build ─────────────────────────────────────────
 def _cli_build():
     # 惰性导入 app，避免 app <-> embeddings 模块级循环
-    from app import fetch_records, _enrich_from_local
-    print("[embed] 拉取飞书记录...")
-    records = fetch_records()
-    for r in records:
-        _enrich_from_local(r)
+    from app import load_archive_records
+    print("[embed] 读取本地 archive...")
+    records = load_archive_records()
     print(f"[embed] 共 {len(records)} 条记录，开始构建向量索引...")
     stats = build_index(records)
     print(f"[embed] 完成: 新建 {stats['built']}，复用 {stats['reused']}，"
