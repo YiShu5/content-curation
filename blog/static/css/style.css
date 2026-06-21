@@ -2268,3 +2268,37 @@ body { background: #F6F4F0; }   /* 暖灰底，降噪感 */
     border: 1px dashed var(--border);
     border-radius: var(--radius-sm);
 }
+
+/* ── 必读驱动建议入库 ── */
+.signal-suggest {
+    border-top: 1px dashed var(--border);
+    padding-top: 10px;
+}
+.signal-suggest-label { font-size: 11px; color: var(--text-muted); }
+.signal-suggest-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 6px;
+    padding: 9px 12px;
+    background: var(--accent-light);
+    border: 1px solid #FBDDD0;
+    border-radius: 8px;
+}
+.signal-suggest-info { flex: 1; min-width: 0; }
+.signal-suggest-title {
+    font-size: 13px; font-weight: 600; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.signal-suggest-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.signal-ingest-btn {
+    flex-shrink: 0;
+    border: none; cursor: pointer;
+    background: var(--accent); color: #fff;
+    font-size: 12px; font-weight: 700;
+    padding: 6px 12px; border-radius: 999px;
+    transition: background .15s;
+    white-space: nowrap;
+}
+.signal-ingest-btn:hover { background: var(--accent-hover); }
+.signal-ingest-btn:disabled { background: var(--text-muted); cursor: default; }

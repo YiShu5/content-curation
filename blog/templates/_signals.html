@@ -29,8 +29,34 @@
                 </a>
                 {% endfor %}
             </div>
+            {% elif s.suggest %}
+            <div class="signal-suggest">
+                <span class="signal-suggest-label">💡 库里还没有，建议入库</span>
+                <div class="signal-suggest-card">
+                    <div class="signal-suggest-info">
+                        <div class="signal-suggest-title">{{ s.suggest.title }}</div>
+                        <div class="signal-suggest-meta">{{ s.suggest.channel }} · {{ s.suggest.dur_min }} 分钟{% if s.suggest.from_whitelist %} · ⭐白名单{% endif %}</div>
+                    </div>
+                    <button class="signal-ingest-btn" data-url="{{ s.suggest.url }}">＋ 入库</button>
+                </div>
+            </div>
             {% endif %}
         </div>
         {% endfor %}
     </div>
+    <script>
+    (function () {
+        document.querySelectorAll('.signal-ingest-btn').forEach(function (b) {
+            b.addEventListener('click', function () {
+                b.disabled = true; b.textContent = '入库中…';
+                fetch('/ingest?url=' + encodeURIComponent(b.dataset.url))
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        b.textContent = d.status === 'started' ? '入库中 · 几分钟后刷新' : '失败';
+                    })
+                    .catch(function () { b.textContent = '失败'; b.disabled = false; });
+            });
+        });
+    })();
+    </script>
 </section>

@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -48,6 +49,13 @@ MIN_CHUNK_SCORE = 0.20  # 块级时间戳匹配阈值（低于此说明定位不
 
 _TS_RE = re.compile(r'\[(\d{2}):(\d{2}):(\d{2})\]')
 _aihot_cache = {"items": None, "expiry": 0}
+
+# 必读驱动建议入库
+YT_DLP = str(Path(__file__).parent.parent / ".venv" / "bin" / "yt-dlp")
+WHITELIST_HINTS = ("Y Combinator", "Lex Fridman", "a16z", "Tina", "DeepLearning", "Andrew Ng")
+MIN_VIDEO_SEC = 900     # 候选视频至少 15 分钟（滤掉切片/快讯）
+SEARCH_N = 8            # 每次 YouTube 搜索取几条
+SUGGEST_MAX = 2         # 最多给几条必读配"建议入库"
 
 
 # ── 工具 ────────────────────────────────────────────────────────────────────
@@ -270,6 +278,61 @@ def _rank_important(news, k=TOP_K):
     return out
 
 
+def _existing_video_ids():
+    """已入库的视频 id 集合（去重用，避免重复建议）"""
+    ids = set()
+    if ARCHIVE_ROOT.exists():
+        for mp in ARCHIVE_ROOT.glob("*/metadata.json"):
+            try:
+                m = json.loads(mp.read_text(encoding="utf-8"))
+                if m.get("id"):
+                    ids.add(str(m["id"]))
+            except Exception:
+                pass
+    return ids
+
+
+def _yt_search(query, n=SEARCH_N):
+    """yt-dlp 关键词搜索（flat，较快），返回候选 [{title,id,url,duration,channel}]。"""
+    try:
+        out = subprocess.run(
+            [YT_DLP, f"ytsearch{n}:{query}", "--flat-playlist",
+             "--print", "%(title)s\t%(id)s\t%(duration)s\t%(channel)s"],
+            capture_output=True, text=True, timeout=30).stdout
+    except Exception:
+        return []
+    res = []
+    for line in out.splitlines():
+        p = line.split("\t")
+        if len(p) < 4 or not p[1]:
+            continue
+        try:
+            dsec = int(float(p[2]))
+        except Exception:
+            dsec = 0
+        res.append({"title": p[0], "id": p[1], "duration": dsec, "channel": p[3],
+                    "url": f"https://www.youtube.com/watch?v={p[1]}"})
+    return res
+
+
+def suggest_video(query, used_ids):
+    """为缺少库内深度内容的必读，找一条可入库的深度视频（白名单频道优先 → 开放搜索）。
+    滤掉 <15min 的切片和已入库的；找不到够格的就返回 None（宁缺毋滥）。"""
+    cands = [c for c in _yt_search(query)
+             if c["duration"] >= MIN_VIDEO_SEC and c["id"] not in used_ids]
+    if not cands:
+        return None
+
+    def is_wl(c):
+        return any(h.lower() in (c["channel"] or "").lower() for h in WHITELIST_HINTS)
+
+    cands.sort(key=lambda c: (0 if is_wl(c) else 1, -c["duration"]))
+    c = cands[0]
+    c["from_whitelist"] = is_wl(c)
+    c["dur_min"] = round(c["duration"] / 60)
+    return c
+
+
 def get_signals(records):
     """主入口：AI HOT 每日 AI 洪流 → DeepSeek 重要性精排出 top-K「今日必读」（降噪核心），
     每条再附上库里相关深度内容（可选）。任何环节缺依赖/出错由调用方 try/except 兜底。"""
@@ -355,6 +418,21 @@ def get_signals(records):
             "why": n.get("why", ""),
             "links": links,
         })
+
+    # ③ 必读驱动建议入库：库里没有相关深度内容的必读，找一条可入库的深度视频（你点确认才抓）
+    existing = _existing_video_ids() | used
+    n_sug = 0
+    for s in signals:
+        if s["links"] or n_sug >= SUGGEST_MAX:
+            continue
+        try:
+            c = suggest_video(s["title"], existing)
+        except Exception:
+            c = None
+        if c:
+            existing.add(c["id"])
+            s["suggest"] = c
+            n_sug += 1
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     SIGNAL_CACHE.write_text(

@@ -429,6 +429,23 @@ def detail(record_id):
     return render_template("detail.html", article=article, related=related)
 
 
+@app.route("/ingest")
+def ingest():
+    """必读驱动入库：抓取指定 YouTube 视频 → 改写 → 重建向量索引（后台跑，立即返回）。"""
+    url = request.args.get("url", "")
+    if not _re.match(r'^https://(www\.)?(youtube\.com/watch\?v=|youtu\.be/)[\w-]{11}', url):
+        return {"status": "bad_url"}, 400
+    import subprocess
+    import shlex
+    root = Path(__file__).parent.parent
+    cmd = (f'cd {shlex.quote(str(root))} && '
+           f'.venv/bin/python scripts/fetch.py --url {shlex.quote(url)} && '
+           f'blog/.venv/bin/python blog/embeddings.py build')
+    subprocess.Popen(["bash", "-lc", cmd],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return {"status": "started"}
+
+
 @app.route("/cover-local/<name>")
 def cover_local(name):
     """从本地 archive 目录返回封面图（博客读 archive 模式下用）"""
