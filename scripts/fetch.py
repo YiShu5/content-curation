@@ -445,35 +445,38 @@ def process_item(item: VideoItem) -> bool | None:
                 print(f"  [跳过] 已处理过")
                 return True
 
-        # 2. 获取转录
+        # 2. 获取转录（免费优先：YouTube 先试免费方案，失败/非 YouTube 才用 BibiGPT 付费）
         transcript = ""
         transcript_source = ""
         transcript_error = ""
-        try:
-            print("  [BibiGPT] 获取转录中...")
-            transcript = get_transcript_bibigpt(item.url)
-            transcript_source = "bibigpt"
-            print(f"  [OK] 转录获取成功 ({len(transcript)} 字符)")
-        except Exception as e:
-            print(f"  [WARN] BibiGPT 失败: {e}")
-            if item.platform == "youtube":
+
+        # 免费方案（仅 YouTube 可用）：baoyu → youtube-transcript-api
+        if item.platform == "youtube":
+            try:
+                print("  [免费1] baoyu-youtube-transcript ...")
+                transcript = get_transcript_baoyu(item.url, archive_dir)
+                transcript_source = "baoyu"
+                print(f"  [OK] baoyu 转录成功 ({len(transcript)} 字符)")
+            except Exception as e_baoyu:
+                print(f"  [WARN] baoyu 失败: {e_baoyu}")
                 try:
-                    print("  [降级1] 尝试 baoyu-youtube-transcript ...")
-                    transcript = get_transcript_baoyu(item.url, archive_dir)
-                    transcript_source = "baoyu"
-                    print(f"  [OK] baoyu 转录成功 ({len(transcript)} 字符)")
-                except Exception as e_baoyu:
-                    print(f"  [WARN] baoyu 失败: {e_baoyu}")
-                    try:
-                        print("  [降级2] 尝试 youtube-transcript-api ...")
-                        transcript = get_transcript_ytapi(item.id)
-                        transcript_source = "youtube-transcript-api"
-                        print(f"  [OK] 降级转录成功 ({len(transcript)} 字符)")
-                    except Exception as e2:
-                        transcript_error = str(e2)
-                        print(f"  [WARN] 转录全部降级失败: {e2}")
-            else:
-                transcript_error = str(e)
+                    print("  [免费2] youtube-transcript-api ...")
+                    transcript = get_transcript_ytapi(item.id)
+                    transcript_source = "youtube-transcript-api"
+                    print(f"  [OK] 免费转录成功 ({len(transcript)} 字符)")
+                except Exception as e_ytapi:
+                    print(f"  [WARN] 免费方案全失败: {e_ytapi}")
+
+        # 免费拿不到（或非 YouTube 平台）→ BibiGPT 付费兜底
+        if not transcript:
+            try:
+                print("  [BibiGPT] 获取转录中（付费兜底）...")
+                transcript = get_transcript_bibigpt(item.url)
+                transcript_source = "bibigpt"
+                print(f"  [OK] BibiGPT 转录成功 ({len(transcript)} 字符)")
+            except Exception as e_bibi:
+                transcript_error = str(e_bibi)
+                print(f"  [WARN] BibiGPT 失败: {e_bibi}")
 
         # 3. 写 transcript.md
         transcript_path = archive_dir / "transcript.md"
