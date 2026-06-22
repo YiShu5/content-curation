@@ -21,6 +21,8 @@ usage() {
   echo "  signals                  后台生成「今日必读」缓存（网页只读）"
   echo "  enrich-guests [--force]  为已归档内容生成嘉宾介绍（头衔/背景/本期角色）"
   echo "  select-quotes [--n 3]    从已有金句中精选最精华的 N 条"
+  echo "  refresh                  新归档后一把补全：嘉宾+金句精选+索引+今日必读"
+  echo "  daily [--limit N]        【每日定时】抓取→补全→索引→今日必读（不同步飞书）"
   echo ""
   echo "示例:"
   echo "  ./run.sh auto                         # 每日定时任务用这个"
@@ -103,6 +105,24 @@ case "$CMD" in
     else
       python scripts/select-quotes.py "$@"
     fi
+    ;;
+  refresh)
+    # 新归档后一把补全：嘉宾卡 → 金句精选 → 重建向量索引 → 生成今日必读
+    .venv/bin/python scripts/enrich-guests.py || true
+    .venv/bin/python scripts/select-quotes.py --n 3 || true
+    blog/.venv/bin/python blog/embeddings.py build
+    blog/.venv/bin/python blog/today_signal.py
+    ;;
+  daily)
+    # 每日定时用：抓白名单新内容 → 补全 → 索引 → 今日必读
+    # （博客已改为读本地 archive，不再同步飞书，避免重复记录）
+    echo "=== [每日] $(date '+%Y-%m-%d %H:%M:%S') 开始 ==="
+    .venv/bin/python scripts/fetch.py --batch --auto "$@" || true
+    .venv/bin/python scripts/enrich-guests.py || true
+    .venv/bin/python scripts/select-quotes.py --n 3 || true
+    blog/.venv/bin/python blog/embeddings.py build
+    blog/.venv/bin/python blog/today_signal.py
+    echo "=== [每日] 完成 $(date '+%Y-%m-%d %H:%M:%S') ==="
     ;;
   all)
     python scripts/fetch.py --batch --auto "$@"

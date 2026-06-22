@@ -441,8 +441,7 @@ def ingest():
     root = Path(__file__).parent.parent
     cmd = (f'cd {shlex.quote(str(root))} && '
            f'.venv/bin/python scripts/fetch.py --url {shlex.quote(url)} && '
-           f'blog/.venv/bin/python blog/embeddings.py build && '
-           f'blog/.venv/bin/python blog/today_signal.py')
+           f'bash run.sh refresh')
     subprocess.Popen(["bash", "-lc", cmd],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return {"status": "started"}
