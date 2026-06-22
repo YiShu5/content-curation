@@ -44,7 +44,7 @@ TOP_K = 3               # 每天「今日必读」条数（最狠降噪）
 PRESELECT = 15          # AI HOT 分粗筛保留数，再交 DeepSeek 精排
 MAX_LINKS = 2
 CHUNK_SECONDS = 15      # transcript 切块窗口
-MIN_DOC_SCORE = 0.45    # 新闻↔内容 文档级匹配阈值（宁可少而准）
+MIN_DOC_SCORE = 0.55    # 新闻↔内容 匹配阈值；低于此算"库里没有",触发建议入库（宁缺毋滥）
 MIN_CHUNK_SCORE = 0.20  # 块级时间戳匹配阈值（低于此说明定位不可靠，仍给链接但不带时间戳）
 
 _TS_RE = re.compile(r'\[(\d{2}):(\d{2}):(\d{2})\]')
@@ -223,19 +223,21 @@ def _archive_by_key():
     return out
 
 
-_RANK_PROMPT = """你是 AI 行业主编。下面是今天全网抓取的 AI 资讯候选，请选出最重要的 {k} 条「今日必读」。
+_RANK_PROMPT = """你是「AI 产品人」的资讯主编，读者都是 AI 产品经理 / AI 创业者。
+从今天全网抓取的 AI 资讯里，选出对 **AI 产品人** 最该读的「今日必读」。
 
-判定标准（重要性从高到低）：
-- 最高：重大模型发布 / 能力突破（如某模型上多模态）、新范式或新概念（如 loop 工程）、影响全行业的大事
-- 低（不要选）：教程、小工具、个人随感、八卦、营销
+判定标准（对 AI 产品人的价值，从高到低）：
+- 最高：重大模型发布/能力突破（直接决定能做出什么产品）、AI 产品打法/商业模式、新范式或新概念、改变产品人工作方式的大事
+- 一般：行业格局/融资/落地案例（看是否对产品决策有启发）
+- 降权或不选：纯底层基础设施、纯安全/红队、纯学术论文细节、教程、小工具、营销、蹭节日、八卦、个人随感
 
-请选出**最多 {k} 条**真正重要的，按重要性从高到低排序（第 1 条最重磅）：
-- 优先：重大模型发布/能力突破、新范式或新概念、影响全行业的大事
-- 教程/工具：只有当它代表新范式或被业界广泛关注才选
-- 纯营销、蹭节日活动、个人随感、八卦：一律不选
+请选出**最多 {k} 条**，按"对产品人的价值"从高到低排序（第 1 条最该读）：
+- 偏 产品落地 / PMF / 用户体验 / AI 产品打法 的优先
+- 纯技术底层、纯安全、纯论文：一律降权或不选
+- 营销/蹭节日/随感/八卦：一律不选
 **条数可少于 {k}（哪怕只有 1 条）；绝不为凑数收录低价值内容。**
 
-只输出 JSON：{{"top":[{{"index":序号,"why":"一句话说清为什么重要"}}, ...]}}（index 基于下面编号）
+只输出 JSON：{{"top":[{{"index":序号,"why":"一句话说清为什么 AI 产品人该读"}}, ...]}}（index 基于下面编号）
 
 候选：
 {items}
@@ -333,18 +335,21 @@ def suggest_video(query, used_ids):
     return c
 
 
-def get_signals(records):
-    """主入口：AI HOT 每日 AI 洪流 → DeepSeek 重要性精排出 top-K「今日必读」（降噪核心），
-    每条再附上库里相关深度内容（可选）。任何环节缺依赖/出错由调用方 try/except 兜底。"""
-    now = time.time()
-    if SIGNAL_CACHE.exists():
-        try:
-            c = json.loads(SIGNAL_CACHE.read_text(encoding="utf-8"))
-            if now < c.get("expiry", 0):
-                return c.get("signals", [])
-        except Exception:
-            pass
+def read_signals():
+    """页面侧：只读缓存，永不触发生成（绝不阻塞网页请求）。
+    返回 signals 列表；缓存不存在（从未生成过）返回 None。"""
+    if not SIGNAL_CACHE.exists():
+        return None
+    try:
+        return json.loads(SIGNAL_CACHE.read_text(encoding="utf-8")).get("signals", [])
+    except Exception:
+        return None
 
+
+def generate_signals(records):
+    """后台生成（慢活：AI HOT + DeepSeek 精排 + yt-dlp 建议入库），写入缓存。
+    由 `run.sh signals` / 每日定时调用，不在网页请求里跑。"""
+    now = time.time()
     news = fetch_aihot()
     if not news:
         return []
@@ -441,3 +446,11 @@ def get_signals(records):
                     "signals": signals}, ensure_ascii=False),
         encoding="utf-8")
     return signals
+
+
+if __name__ == "__main__":
+    # 后台生成今日必读（run.sh signals / 每日定时调用）
+    from app import load_archive_records
+    print("[signals] 拉 AI HOT + DeepSeek 精排 + 建议入库,生成今日必读...")
+    sigs = generate_signals(load_archive_records())
+    print(f"[signals] 生成 {len(sigs)} 条 → {SIGNAL_CACHE}")

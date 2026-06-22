@@ -2302,3 +2302,56 @@ body { background: #F6F4F0; }   /* 暖灰底，降噪感 */
 }
 .signal-ingest-btn:hover { background: var(--accent-hover); }
 .signal-ingest-btn:disabled { background: var(--text-muted); cursor: default; }
+
+/* ── 详情页评分·评级优先(替代雷达图) ── */
+.d-verdict {
+    margin: 4px 0 10px;
+    padding: 16px 18px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+}
+.d-verdict-top { display: flex; align-items: center; gap: 12px; }
+.d-verdict-badge {
+    font-size: 19px; font-weight: 800; color: #fff;
+    padding: 5px 16px; border-radius: 999px; white-space: nowrap;
+}
+.d-verdict-score {
+    margin-left: auto; font-size: 32px; font-weight: 900;
+    color: var(--text); font-variant-numeric: tabular-nums; line-height: 1;
+}
+.d-verdict-score small { font-size: 14px; font-weight: 600; color: var(--text-muted); }
+.d-verdict-why {
+    font-size: 14px; line-height: 1.65; color: var(--text-secondary);
+    margin-top: 12px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.d-verdict-why b { color: var(--text); font-weight: 700; }
+.d-verdict-dims {
+    display: flex; gap: 18px; margin-top: 12px;
+    font-size: 12px; color: var(--text-muted);
+}
+.d-verdict-dims i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
+.d-verdict-dims small { color: var(--text-muted); opacity: .7; }
+
+/* 按评级配色：必读最烫 */
+.d-verdict.v-must   { border-color: #FBCFC0; background: linear-gradient(180deg, #FFF3EE, #fff); }
+.d-verdict.v-must   .d-verdict-badge { background: linear-gradient(135deg, #F26B3A, #E0431B); box-shadow: 0 2px 10px rgba(224,67,27,.28); }
+.d-verdict.v-strong { border-color: #FCE4BF; background: linear-gradient(180deg, #FFF9EF, #fff); }
+.d-verdict.v-strong .d-verdict-badge { background: #F59E0B; }
+.d-verdict.v-rec    .d-verdict-badge { background: #10B981; }
+.d-verdict.v-mid    .d-verdict-badge { background: #9CA3AF; }
+.d-verdict.v-skip   .d-verdict-badge { background: #CBD5E1; color: #475569; }
+
+/* ══════════ 可读性增强（提高对比度 + 放大正文）══════════ */
+:root { --text-secondary: #4B5563; }          /* 次要文字整体加深，灰字更清楚 */
+.d-prose { font-size: 17px; color: #1f1f1f; } /* 正文更大更黑 */
+.d-quote-text {                                /* 金句：去斜体、加深、放大 */
+    font-style: normal;
+    color: var(--text);
+    font-size: 16.5px;
+    line-height: 1.85;
+}
+.d-verdict-why { color: var(--text); font-size: 15px; }   /* "强在…"那句更清楚 */
+.card-insight-text { font-size: 13.5px; color: var(--text-secondary); }
+.signal-summary, .signal-why { color: var(--text); }       /* 今日必读文字更黑 */

@@ -61,50 +61,33 @@
             </div>
             {% endif %}
 
-            <!-- 评分卡片（雷达图） -->
+            <!-- 评分（评级优先：一眼看该不该读） -->
             {% if article.score_total is not none %}
             {% set total = article.score_total %}
             {% set sc = article.scores %}
             {% set ins = sc.insight.score if sc.insight else 0 %}
             {% set src = sc.source.score if sc.source else 0 %}
             {% set sto = sc.storytelling.score if sc.storytelling else 0 %}
-            {% set r_in = ins / 50 %}{% set r_st = sto / 25 %}{% set r_so = src / 25 %}
-            {% set cx = 100 %}{% set cy = 98 %}{% set R = 70 %}
-            {% set ax = cx %}{% set ay = (cy - R * r_in) | round(1) %}
-            {% set sx = (cx + R * r_st * 0.866) | round(1) %}{% set sy = (cy + R * r_st * 0.5) | round(1) %}
-            {% set bx = (cx - R * r_so * 0.866) | round(1) %}{% set by = (cy + R * r_so * 0.5) | round(1) %}
-            <div class="d-score-card d-score-radar">
-                <div class="d-radar-chart">
-                    <svg viewBox="0 0 200 180" width="170" height="153" aria-label="评分雷达图">
-                        <polygon points="100,28 160.6,133 39.4,133" fill="none" stroke="#E5E7EB" stroke-width="1"/>
-                        <polygon points="100,63 130.3,115.5 69.7,115.5" fill="none" stroke="#EFEDE8" stroke-width="1"/>
-                        <line x1="100" y1="98" x2="100" y2="28" stroke="#E5E7EB" stroke-width="1"/>
-                        <line x1="100" y1="98" x2="160.6" y2="133" stroke="#E5E7EB" stroke-width="1"/>
-                        <line x1="100" y1="98" x2="39.4" y2="133" stroke="#E5E7EB" stroke-width="1"/>
-                        <polygon points="{{ ax }},{{ ay }} {{ sx }},{{ sy }} {{ bx }},{{ by }}" fill="rgba(242,107,58,0.16)" stroke="#F26B3A" stroke-width="2" stroke-linejoin="round"/>
-                        <circle cx="{{ ax }}" cy="{{ ay }}" r="3" fill="#3B82F6"/>
-                        <circle cx="{{ sx }}" cy="{{ sy }}" r="3" fill="#8B5CF6"/>
-                        <circle cx="{{ bx }}" cy="{{ by }}" r="3" fill="#10B981"/>
-                        <text x="100" y="18" text-anchor="middle" font-size="12" fill="#6B7280">洞察</text>
-                        <text x="180" y="148" text-anchor="middle" font-size="12" fill="#6B7280">故事</text>
-                        <text x="20" y="148" text-anchor="middle" font-size="12" fill="#6B7280">信源</text>
-                    </svg>
+            {% if total >= 90 %}{% set vcls = 'v-must' %}{% set vemoji = '🔥' %}{% set vlabel = '必读' %}
+            {% elif total >= 75 %}{% set vcls = 'v-strong' %}{% set vemoji = '⭐' %}{% set vlabel = '强烈推荐' %}
+            {% elif total >= 60 %}{% set vcls = 'v-rec' %}{% set vemoji = '👍' %}{% set vlabel = '推荐' %}
+            {% elif total >= 45 %}{% set vcls = 'v-mid' %}{% set vemoji = '😐' %}{% set vlabel = '一般' %}
+            {% else %}{% set vcls = 'v-skip' %}{% set vemoji = '⏭️' %}{% set vlabel = '可跳过' %}{% endif %}
+            {% if (ins / 50) >= (src / 25) and (ins / 50) >= (sto / 25) %}{% set bestdim = '洞察原创' %}{% set reason = sc.insight.reason if sc.insight else '' %}
+            {% elif (src / 25) >= (sto / 25) %}{% set bestdim = '信源质量' %}{% set reason = sc.source.reason if sc.source else '' %}
+            {% else %}{% set bestdim = '故事可读' %}{% set reason = sc.storytelling.reason if sc.storytelling else '' %}{% endif %}
+            <div class="d-verdict {{ vcls }}">
+                <div class="d-verdict-top">
+                    <span class="d-verdict-badge">{{ vemoji }} {{ vlabel }}</span>
+                    <span class="d-verdict-score">{{ total }}<small>/100</small></span>
                 </div>
-                <div class="d-radar-side">
-                    <div class="d-score-num">{{ total }}<span class="d-score-denom">/100</span></div>
-                    <div class="d-score-verdict">
-                        {%- if total >= 90 %}🔥 必读
-                        {%- elif total >= 75 %}⭐ 强烈推荐
-                        {%- elif total >= 60 %}👍 推荐
-                        {%- elif total >= 45 %}😐 一般
-                        {%- else %}⏭️ 可跳过
-                        {%- endif %}
-                    </div>
-                    <div class="d-radar-legend">
-                        <span><i class="d-dot" style="background:#3B82F6"></i>洞察原创<b>{{ ins }}</b><small>/50</small></span>
-                        <span><i class="d-dot" style="background:#8B5CF6"></i>故事可读<b>{{ sto }}</b><small>/25</small></span>
-                        <span><i class="d-dot" style="background:#10B981"></i>信源质量<b>{{ src }}</b><small>/25</small></span>
-                    </div>
+                {% if reason %}
+                <p class="d-verdict-why"><b>强在{{ bestdim }}</b> · {{ reason }}</p>
+                {% endif %}
+                <div class="d-verdict-dims">
+                    <span><i style="background:#3B82F6"></i>洞察 {{ ins }}<small>/50</small></span>
+                    <span><i style="background:#10B981"></i>信源 {{ src }}<small>/25</small></span>
+                    <span><i style="background:#8B5CF6"></i>故事 {{ sto }}<small>/25</small></span>
                 </div>
             </div>
             {% endif %}

@@ -18,6 +18,7 @@ usage() {
   echo "  sync-doc [archive_dir]   将已改写内容创建为飞书文档（长文阅读视图）"
   echo "  all [--limit N]          执行 batch（交互），完成后同步多维表格 + 飞书文档"
   echo "  embed                    构建语义搜索向量索引（智谱 embedding-3）"
+  echo "  signals                  后台生成「今日必读」缓存（网页只读）"
   echo "  enrich-guests [--force]  为已归档内容生成嘉宾介绍（头衔/背景/本期角色）"
   echo "  select-quotes [--n 3]    从已有金句中精选最精华的 N 条"
   echo ""
@@ -77,6 +78,14 @@ case "$CMD" in
       blog/.venv/bin/python blog/embeddings.py build
     else
       python blog/embeddings.py build
+    fi
+    ;;
+  signals)
+    # 后台生成「今日必读」缓存（网页只读它，不阻塞）
+    if [ -x "blog/.venv/bin/python" ]; then
+      blog/.venv/bin/python blog/today_signal.py
+    else
+      python blog/today_signal.py
     fi
     ;;
   enrich-guests)

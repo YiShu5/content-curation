@@ -277,15 +277,16 @@ def index():
         if v:
             _vc[v] = _vc.get(v, 0) + 1
     verdicts = [{"name": v, "count": _vc[v]} for v in _verdict_order if v in _vc]
-    # 今日必读（独立模块；任何失败都不影响页面其余部分）
+    # 今日必读（页面只读缓存，永不阻塞；缓存由 `run.sh signals` 后台生成）
     signals = []
-    signal_ran = False  # 区分「跑成功但降噪后为 0」与「出错」
+    signal_ran = False  # 区分「已生成但降噪后为 0」与「从未生成」
     try:
         import today_signal
-        signals = today_signal.get_signals(records)
-        signal_ran = True
+        cached = today_signal.read_signals()
+        signal_ran = cached is not None
+        signals = cached or []
     except Exception as e:
-        print(f"[WARN] 今日必读生成失败（不影响页面）: {e}")
+        print(f"[WARN] 今日必读读取失败（不影响页面）: {e}")
     return render_template("index.html", records=records, topics=used_topics,
                            topic_counts=topic_counts, verdicts=verdicts,
                            signals=signals, signal_ran=signal_ran)
@@ -440,7 +441,8 @@ def ingest():
     root = Path(__file__).parent.parent
     cmd = (f'cd {shlex.quote(str(root))} && '
            f'.venv/bin/python scripts/fetch.py --url {shlex.quote(url)} && '
-           f'blog/.venv/bin/python blog/embeddings.py build')
+           f'blog/.venv/bin/python blog/embeddings.py build && '
+           f'blog/.venv/bin/python blog/today_signal.py')
     subprocess.Popen(["bash", "-lc", cmd],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return {"status": "started"}
