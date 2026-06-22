@@ -383,21 +383,32 @@ def _enrich_from_local(article):
     return article
 
 
+# 问句型查询的标志词（命中则走「AI 综合回答」，否则纯列卡片）
+_Q_MARKERS = ("?", "？", "啥", "什么", "怎么", "如何", "为什么", "哪些", "哪几", "哪个",
+              "对比", "区别", "总结", "概况", "趋势", "看法", "观点", "这周", "本周",
+              "最近", "有什么", "讲了", "聊了", "发生", "盘点", "现状")
+
+
+def _is_question(q):
+    return any(m in q for m in _Q_MARKERS)
+
+
 @app.route("/search")
 def search():
     query = (request.args.get("q") or "").strip()
     if not query:
-        return render_template("search.html", query="", results=[], error="")
+        return render_template("search.html", query="", results=[], answer="", error="")
 
     records = load_archive_records()
     import embeddings
+    import today_signal
     try:
         hits = embeddings.search(query, records)
     except embeddings.EmbeddingError as e:
-        return render_template("search.html", query=query, results=[], error=str(e))
+        return render_template("search.html", query=query, results=[], answer="", error=str(e))
     except Exception as e:
         print(f"[ERROR] 语义搜索失败: {e}")
-        return render_template("search.html", query=query, results=[],
+        return render_template("search.html", query=query, results=[], answer="",
                                error="语义搜索出错，请稍后重试。")
 
     # 把相似度分附到 record 上，方便模板展示
@@ -406,7 +417,18 @@ def search():
         rec = dict(rec)
         rec["score"] = round(score * 100)
         results.append(rec)
-    return render_template("search.html", query=query, results=results, error="")
+
+    # 问句型查询 → 综合「库 + 本周 AI HOT」生成一段 AI 回答（智能判断；失败不影响列表）
+    answer = ""
+    if _is_question(query):
+        try:
+            answer = today_signal.answer_query(query, results)  # 用全量 top 结果作上下文
+        except Exception as e:
+            print(f"[WARN] AI 回答生成失败: {e}")
+        if answer:
+            results = results[:4]  # 有回答时，卡片只留少量「依据」，不刷屏
+
+    return render_template("search.html", query=query, results=results, answer=answer, error="")
 
 
 @app.route("/article/<record_id>")

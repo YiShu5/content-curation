@@ -23,19 +23,29 @@
     {% endif %}
 </section>
 
+{% if answer %}
+<section class="search-answer">
+    <div class="sa-head">🤖 AI 回答 <span class="sa-sub">综合你的库 + 本周全网 AI 资讯</span></div>
+    <div class="sa-body">{{ answer | markdown | safe }}</div>
+</section>
+{% endif %}
+
 {% if error %}
 <div class="empty-state">
     <p>{{ error }}</p>
 </div>
-{% elif query and not results %}
+{% elif query and not results and not answer %}
 <div class="empty-state">
     <p>没有找到与「{{ query }}」相关的内容。</p>
 </div>
 {% endif %}
 
+{% if results %}
+{% if answer %}<div class="search-results-label">📚 依据 · 库里相关内容</div>{% endif %}
 <section class="card-grid" id="card-grid">
     {% for r in results %}
     {% include "_card.html" %}
     {% endfor %}
 </section>
+{% endif %}
 {% endblock %}
