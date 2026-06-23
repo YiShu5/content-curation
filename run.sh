@@ -120,8 +120,8 @@ case "$CMD" in
     .venv/bin/python scripts/fetch.py --batch --auto "$@" || true
     .venv/bin/python scripts/enrich-guests.py || true
     .venv/bin/python scripts/select-quotes.py --n 3 || true
-    blog/.venv/bin/python blog/embeddings.py build
-    blog/.venv/bin/python blog/today_signal.py
+    blog/.venv/bin/python blog/embeddings.py build || true
+    blog/.venv/bin/python blog/today_signal.py || true
     echo "=== [每日] 完成 $(date '+%Y-%m-%d %H:%M:%S') ==="
     ;;
   all)

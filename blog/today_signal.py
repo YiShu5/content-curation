@@ -106,6 +106,22 @@ def _cos(mat, vec):
 
 
 # ── AI HOT ──────────────────────────────────────────────────────────────────
+def _request_retry(method, url, *, tries=3, **kwargs):
+    """带重试的请求：扛住 ChunkedEncodingError / 连接抖动等瞬时网络错误，
+    别让一次网络抖动把整条每日任务整挂(今日必读就不更新了)。"""
+    last = None
+    for i in range(tries):
+        try:
+            resp = requests.request(method, url, **kwargs)
+            resp.raise_for_status()
+            return resp
+        except requests.exceptions.RequestException as e:
+            last = e
+            if i < tries - 1:
+                time.sleep(1.5 * (i + 1))
+    raise last
+
+
 def fetch_aihot(hours=24):
     """拉取过去 hours 小时的精选新闻，按 hours 分桶缓存 30 分钟。失败抛异常由调用方兜底。"""
     now = time.time()
@@ -113,13 +129,12 @@ def fetch_aihot(hours=24):
     if c and now < c["expiry"]:
         return c["items"]
     since = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    resp = requests.get(
-        AIHOT_URL,
+    resp = _request_retry(
+        "GET", AIHOT_URL,
         params={"mode": "selected", "since": since, "take": 100 if hours > 48 else 50},
         headers={"User-Agent": AIHOT_UA},
         timeout=15,
     )
-    resp.raise_for_status()
     items = resp.json().get("items", [])
     _aihot_cache[hours] = {"items": items, "expiry": now + AIHOT_TTL}
     return items
@@ -226,16 +241,12 @@ def _archive_by_key():
 _RANK_PROMPT = """你是「AI 产品人」的资讯主编，读者都是 AI 产品经理 / AI 创业者。
 从今天全网抓取的 AI 资讯里，选出对 **AI 产品人** 最该读的「今日必读」。
 
-判定标准（对 AI 产品人的价值，从高到低）：
-- 最高：重大模型发布/能力突破（直接决定能做出什么产品）、AI 产品打法/商业模式、新范式或新概念、改变产品人工作方式的大事
-- 一般：行业格局/融资/落地案例（看是否对产品决策有启发）
-- 降权或不选：纯底层基础设施、纯安全/红队、纯学术论文细节、教程、小工具、营销、蹭节日、八卦、个人随感
+判定标准（只看"对 AI 产品人的价值"，不看热度高低）：
+- 最高：重大模型/能力发布（直接决定能做出什么产品）、AI 产品打法/商业模式、新范式或新概念、改变产品人工作方式的大事；偏 产品落地 / PMF / 用户体验 的优先
+- 降权或不选：纯行业格局 / 产业政策 / 国标补贴、纯硬件与车圈（如自动驾驶圈速、芯片/算力发布）、纯底层基础设施、纯安全红队、纯学术论文细节、教程 / 小工具、营销 / 蹭节日、人事 / 融资八卦、个人随感
 
-请选出**最多 {k} 条**，按"对产品人的价值"从高到低排序（第 1 条最该读）：
-- 偏 产品落地 / PMF / 用户体验 / AI 产品打法 的优先
-- 纯技术底层、纯安全、纯论文：一律降权或不选
-- 营销/蹭节日/随感/八卦：一律不选
-**条数可少于 {k}（哪怕只有 1 条）；绝不为凑数收录低价值内容。**
+请选出**最多 {k} 条**，按"对产品人的价值"从高到低排序（第 1 条最该读）。
+**宁缺毋滥：条数可少于 {k}（哪怕只有 1 条）；绝不为凑数、也绝不因为"热度高/上了头条"就收录低价值内容。**
 
 只输出 JSON：{{"top":[{{"index":序号,"why":"一句话说清为什么 AI 产品人该读"}}, ...]}}（index 基于下面编号）
 
@@ -249,14 +260,13 @@ def _chat_json(prompt, temperature=0.2):
     key = os.getenv("OPENAI_API_KEY", "")
     base = os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com").rstrip("/")
     model = os.getenv("OPENAI_MODEL", "deepseek-chat")
-    resp = requests.post(
-        f"{base}/chat/completions",
+    resp = _request_retry(
+        "POST", f"{base}/chat/completions",
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
         json={"model": model, "messages": [{"role": "user", "content": prompt}],
               "response_format": {"type": "json_object"}, "temperature": temperature},
         timeout=60,
     )
-    resp.raise_for_status()
     return json.loads(resp.json()["choices"][0]["message"]["content"])
 
 
