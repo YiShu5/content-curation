@@ -2376,3 +2376,39 @@ body { background: #F6F4F0; }   /* 暖灰底，降噪感 */
     max-width: var(--max-width); margin: 0 auto 8px;
     font-size: 13px; font-weight: 700; color: var(--text-secondary);
 }
+
+/* ══════════ 紧凑应用壳：统一画布 + 压缩 hero + 限宽 + 侧栏成板（2026-06）══════════ */
+:root { --max-width: 1180px; }
+
+/* ① 统一暖灰画布，去掉「上白下灰」硬分界 */
+.site-header { background: #F6F4F0; border-bottom: 1px solid rgba(26,26,46,.06); }
+.hero { display: none; }   /* 顶部窄标语整条删掉 */
+
+/* ② logo 与侧栏统一材质：白色圆角面板（去渐变扁平化），跟右侧搜索框、侧栏一个调 */
+.logo {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 6px 14px 6px 8px;
+    box-shadow: var(--shadow);
+}
+.logo-icon { background: var(--accent); }
+
+/* ③ 侧栏做成与内容卡同材质的白板，左导航贴住内容，整页像一个应用 */
+.home-layout { gap: 20px; padding-top: 18px; }
+.home-sidebar {
+    width: 200px;
+    top: 64px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 12px 10px;
+    box-shadow: var(--shadow);
+}
+.side-count { background: #F6F4F0; }      /* 白板上白徽章看不清，改暖灰 */
+.side-toggle { background: #F6F4F0; }
+.side-item.active .side-count { background: #fff; }
+
+@media (max-width: 880px) {
+    .home-sidebar { border-radius: 14px; }
+}
