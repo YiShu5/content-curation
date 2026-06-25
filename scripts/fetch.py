@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -377,6 +378,64 @@ def get_transcript_ytapi(video_id: str) -> str:
         raise RuntimeError(f"youtube-transcript-api 也失败了: {e}")
 
 
+def get_transcript_whisper(url: str, video_id: str = "", lang: str = "zh") -> str:
+    """本地 whisper.cpp 转录：任意平台、零 API 成本、中文质量好。
+    按 video_id 缓存 wav + json 到 ~/.cache/whisper-cpp/jobs，避免重复转录/下载。
+    需要 whisper-cli(brew install whisper-cpp) + 一个 ggml 模型(WHISPER_MODEL 可覆盖)。"""
+    model = os.environ.get("WHISPER_MODEL") or str(
+        Path.home() / ".cache" / "whisper-cpp" / "ggml-large-v3-turbo.bin")
+    if not Path(model).exists():
+        raise RuntimeError(f"whisper 模型不存在: {model}")
+    if not shutil.which("whisper-cli"):
+        raise RuntimeError("whisper-cli 未安装(brew install whisper-cpp)")
+
+    cdir = Path.home() / ".cache" / "whisper-cpp" / "jobs"
+    cdir.mkdir(parents=True, exist_ok=True)
+    key = video_id or hashlib.sha1(url.encode()).hexdigest()[:16]
+    jf = cdir / f"{key}.json"
+
+    if not jf.exists():  # 没缓存才下载+转录
+        wav = cdir / f"{key}.wav"
+        if not wav.exists():
+            ydl = str(PROJECT_ROOT / ".venv" / "bin" / "yt-dlp")
+            if not Path(ydl).exists():
+                ydl = "yt-dlp"
+            subprocess.run([ydl, "-f", "ba/b", "--extractor-args",
+                            "youtube:player_client=android",
+                            "-o", str(cdir / f"{key}.%(ext)s"), url],
+                           capture_output=True, text=True, timeout=900)
+            dl = next((p for p in sorted(cdir.glob(f"{key}.*"))
+                       if p.suffix not in (".wav", ".json")), None)
+            if not dl:
+                raise RuntimeError("音频下载失败")
+            subprocess.run(["ffmpeg", "-y", "-i", str(dl), "-ar", "16000", "-ac", "1",
+                            str(wav)], capture_output=True, text=True)
+            if not wav.exists():
+                raise RuntimeError("ffmpeg 转 16k wav 失败")
+        rr = subprocess.run(["whisper-cli", "-m", model, "-f", str(wav), "-l", lang,
+                             "-oj", "-of", str(cdir / key)],
+                            capture_output=True, text=True, timeout=7200)
+        if not jf.exists():
+            raise RuntimeError(f"whisper 转录失败: {(rr.stderr or '')[-300:]}")
+
+    data = json.loads(jf.read_text(encoding="utf-8"))
+    lines = []
+    for seg in data.get("transcription", []):
+        off = (seg.get("offsets") or {}).get("from")
+        if isinstance(off, (int, float)):
+            sec = int(off // 1000)
+        else:
+            t = (seg.get("timestamps") or {}).get("from", "00:00:00").split(",")[0]
+            parts = (t.split(":") + ["0", "0", "0"])[:3]
+            sec = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+        txt = (seg.get("text") or "").strip()
+        if txt:
+            lines.append(f"[{sec//3600:02d}:{(sec%3600)//60:02d}:{sec%60:02d}] {txt}")
+    if not lines:
+        raise RuntimeError("whisper 输出为空")
+    return "\n".join(lines)
+
+
 # ── 工具函数 ──────────────────────────────────────────────────────────────
 def sanitize_title(title: str) -> str:
     """将标题转换为安全的文件夹名"""
@@ -467,7 +526,17 @@ def process_item(item: VideoItem) -> bool | None:
                 except Exception as e_ytapi:
                     print(f"  [WARN] 免费方案全失败: {e_ytapi}")
 
-        # 免费拿不到（或非 YouTube 平台）→ BibiGPT 付费兜底
+        # 免费方案·本地 whisper.cpp（任意平台、零 API 成本、中文质量好）
+        if not transcript:
+            try:
+                print("  [免费·本地] whisper.cpp 转录中（中文，首次约 10-15 分钟）...")
+                transcript = get_transcript_whisper(item.url, item.id)
+                transcript_source = "whisper-local"
+                print(f"  [OK] 本地 whisper 转录成功 ({len(transcript)} 字符)")
+            except Exception as e_w:
+                print(f"  [WARN] 本地 whisper 失败: {e_w}")
+
+        # 仍拿不到 → BibiGPT 付费兜底
         if not transcript:
             try:
                 print("  [BibiGPT] 获取转录中（付费兜底）...")
