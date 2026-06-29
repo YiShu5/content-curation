@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "bibi": {
+      "source": "JimmyLv/bibigpt-skill",
+      "sourceType": "github",
+      "skillPath": "skills/bibi/SKILL.md",
+      "computedHash": "ad91271a30e1be0bc0183c5a8dda58bf177194189fd48d83c69ba8e75266dd8b"
+    }
+  }
+}
