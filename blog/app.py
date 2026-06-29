@@ -12,6 +12,7 @@ import requests
 from flask import Flask, render_template, abort, Response, request, send_file
 
 import re as _re
+from urllib.parse import quote as _urlquote
 
 try:
     import markdown as _md_lib
@@ -242,7 +243,7 @@ def load_archive_records():
                 "duration": round(dur / 60) if dur else 0,
                 "guests": "、".join(guests) if isinstance(guests, list) else (guests or ""),
                 "summary": m.get("deep_summary", ""),
-                "cover_url": f"/cover-local/{d.name}" if cover else "",
+                "cover_url": f"/cover-local/{_urlquote(d.name)}" if cover else "",
                 "topic": m.get("topic", ""),
                 "score_total": m.get("score_total"),
                 "score_verdict": m.get("score_verdict", ""),
@@ -501,4 +502,4 @@ def cover_proxy(file_token):
 
 # ── 启动 ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(debug=True, host="0.0.0.0", port=5055)
