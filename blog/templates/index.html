@@ -132,5 +132,22 @@
         else if (e.key === 'Escape' && pocket.classList.contains('open')) close();
     });
 })();
+
+// 极轻点击埋点：记录今日必读 / 卡片被点了什么（只发 beacon、不阻塞跳转，存本地日志）
+(function () {
+    function track(kind, label, href) {
+        try {
+            navigator.sendBeacon('/track', new Blob(
+                [JSON.stringify({ kind: kind, label: label, href: href || '' })],
+                { type: 'application/json' }));
+        } catch (e) {}
+    }
+    document.addEventListener('click', function (e) {
+        var a = e.target.closest && e.target.closest('a');
+        if (!a) return;
+        if (a.closest('.signals')) track('signal', a.textContent.trim().slice(0, 100), a.href);
+        else if (a.closest('#card-grid')) track('card', a.textContent.trim().slice(0, 80), a.href);
+    }, true);
+})();
 </script>
 {% endblock %}

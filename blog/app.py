@@ -463,6 +463,27 @@ def ingest():
     return {"status": "started"}
 
 
+@app.route("/track", methods=["POST"])
+def track():
+    """极轻点击埋点：记录今日必读/卡片被点了什么，写本地日志 data/clicks.log
+    （供日后判断"哪些内容对 AI 产品人真有用"）。永不报错、不阻塞。"""
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        rec = {
+            "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "kind": str(data.get("kind", ""))[:20],
+            "label": str(data.get("label", ""))[:120],
+            "href": str(data.get("href", ""))[:300],
+        }
+        log = Path(__file__).parent / "data" / "clicks.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with open(log, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+    return ("", 204)
+
+
 @app.route("/cover-local/<name>")
 def cover_local(name):
     """从本地 archive 目录返回封面图（博客读 archive 模式下用）"""
