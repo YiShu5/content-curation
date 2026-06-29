@@ -607,9 +607,12 @@ transcript_source: {transcript_source or 'none'}
                 print(f"  [WARN] rewrite.js 失败 (exit {result.returncode})")
                 if result.stderr:
                     print(f"       {result.stderr[:300]}")
+                shutil.rmtree(archive_dir, ignore_errors=True)  # 改写失败也清空壳
                 return False
         else:
             print("  [跳过] 无转录文本，跳过 AI 改写")
+            shutil.rmtree(archive_dir, ignore_errors=True)  # 清理空壳，不留垃圾目录
+            print("  [清理] 已删除未完成目录（下次可重试）")
             return None  # 转录失败，不写入 state，下次可重试
 
         return True
