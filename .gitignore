@@ -20,3 +20,9 @@ blog/.venv/
 .idea/
 .claude/
 .agents/
+
+# 本地工作区 docs：只版本化草稿(.md)与最终金句图(shot-*.png)，忽略可再生的中间产物
+docs/cards/
+docs/*.html
+docs/images/*.png
+!docs/images/shot-*.png
