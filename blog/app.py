@@ -58,14 +58,7 @@ app.config.from_object(Config)
 app.jinja_env.filters['markdown'] = _render_markdown
 app.jinja_env.filters['strip_md'] = _strip_markdown
 
-# 启动时检查必要配置
-_missing = [k for k in ("FEISHU_APP_ID", "FEISHU_APP_SECRET", "BASE_ID", "TABLE_ID")
-            if not app.config.get(k)]
-if _missing:
-    import sys
-    print(f"[ERROR] 缺少飞书配置项: {', '.join(_missing)}，请检查 config/.env", file=sys.stderr)
-
-# ── 飞书 API ──────────────────────────────────────────────────────────────
+# ── 飞书 API（legacy，博客已改读本地 archive，不再调用）──────────────────────
 _token_cache = {"token": "", "expiry": 0}
 
 
