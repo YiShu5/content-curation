@@ -54,26 +54,19 @@ def find(key):
     return None, None
 
 
-def overlay_html(img, zh, name, role, score):
-    verdict = "必读" if score >= 90 else "强烈推荐"
+def overlay_html(img, zh, name, role, score=None):
     return f"""<!doctype html><meta charset=utf-8><style>
 html,body{{margin:0}}
 .stage{{width:1280px;height:720px;position:relative;overflow:hidden;background:#000 url('file://{img}') center/cover no-repeat;font-family:"PingFang SC","Helvetica Neue",sans-serif}}
-.tag{{position:absolute;top:30px;left:30px;display:flex;align-items:center;gap:12px;background:rgba(0,0,0,.42);padding:9px 18px 9px 11px;border-radius:999px}}
-.chip{{width:38px;height:38px;border-radius:10px;background:#DD6B33;color:#fff;font-family:"Songti SC",serif;font-weight:700;font-size:24px;display:flex;align-items:center;justify-content:center}}
-.tt{{color:#fff;font-size:22px;letter-spacing:1px}}
 .cap{{position:absolute;left:0;right:0;bottom:0;padding:150px 70px 58px;background:linear-gradient(180deg,transparent,rgba(0,0,0,.22) 36%,rgba(0,0,0,.92))}}
 .q{{color:#fff;font-size:60px;font-weight:600;line-height:1.3;text-shadow:0 2px 14px rgba(0,0,0,.65)}}
-.by{{display:flex;align-items:center;justify-content:space-between;margin-top:28px}}
-.nm{{color:#EBE3D7;font-size:30px}}
+.nm{{color:#EBE3D7;font-size:30px;margin-top:28px}}
 .nm b{{color:#fff;font-weight:600}}
-.pill{{background:#DD6B33;color:#fff;font-size:25px;font-weight:600;padding:8px 22px;border-radius:999px;white-space:nowrap}}
 </style>
 <div class=stage>
-  <div class=tag><span class=chip>降</span><span class=tt>降噪 · 本周 AI 必读 #1</span></div>
   <div class=cap>
     <div class=q>「{zh}」</div>
-    <div class=by><span class=nm>— <b>{name}</b> · {role}</span><span class=pill>评分 {score} · {verdict}</span></div>
+    <div class=nm>— <b>{name}</b> · {role}</div>
   </div>
 </div>"""
 

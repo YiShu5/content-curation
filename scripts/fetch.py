@@ -378,7 +378,7 @@ def get_transcript_ytapi(video_id: str) -> str:
         raise RuntimeError(f"youtube-transcript-api 也失败了: {e}")
 
 
-def get_transcript_whisper(url: str, video_id: str = "", lang: str = "zh") -> str:
+def get_transcript_whisper(url: str, video_id: str = "", lang: str = "auto") -> str:
     """本地 whisper.cpp 转录：任意平台、零 API 成本、中文质量好。
     按 video_id 缓存 wav + json 到 ~/.cache/whisper-cpp/jobs，避免重复转录/下载。
     需要 whisper-cli(brew install whisper-cpp) + 一个 ggml 模型(WHISPER_MODEL 可覆盖)。"""
