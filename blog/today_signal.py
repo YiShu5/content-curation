@@ -1182,6 +1182,12 @@ def _has_malformed_signal_cache_fields(payload):
     for field in ("signals", "attention"):
         if field in payload and not isinstance(payload.get(field), list):
             return True
+    if (
+        "breaking" in payload
+        and payload.get("breaking") is not None
+        and not isinstance(payload.get("breaking"), dict)
+    ):
+        return True
     return False
 
 
