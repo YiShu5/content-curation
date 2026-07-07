@@ -283,7 +283,10 @@ def index():
         import today_signal
         cached = today_signal.read_signal_cache()
         signal_ran = cached is not None
-        signal_meta = today_signal.enrich_cached_link_quotes(cached or {}, records)
+        signal_meta = today_signal.enrich_cached_link_quotes(
+            cached if cached is not None else today_signal.missing_signal_state(),
+            records,
+        )
         signals = signal_meta.get("signals") or []
         breaking = signal_meta.get("breaking")
         attention = signal_meta.get("attention") or []

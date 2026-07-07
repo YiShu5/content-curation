@@ -1086,14 +1086,103 @@ def answer_query(query, lib_results, days=7):
     return (data.get("answer") or "").strip()
 
 
+def _parse_generated_at(value):
+    try:
+        return datetime.strptime(str(value or ""), "%Y-%m-%d %H:%M")
+    except ValueError:
+        return None
+
+
+def _delivery_time(profile):
+    delivery = (profile or {}).get("delivery") or {}
+    hour = int(delivery.get("hour", 8) or 8)
+    minute = int(delivery.get("minute", 30) or 30)
+    return max(0, min(hour, 23)), max(0, min(minute, 59))
+
+
+def _next_delivery_after(dt, profile):
+    hour, minute = _delivery_time(profile)
+    candidate = dt.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if candidate <= dt:
+        candidate = candidate + timedelta(days=1)
+    return candidate
+
+
+def signal_freshness(payload, now_ts=None, profile=None):
+    profile = profile or load_profile()
+    generated = _parse_generated_at((payload or {}).get("generated_at"))
+    if not generated:
+        return {
+            "status": "invalid",
+            "is_expired": True,
+            "age_hours": None,
+            "expires_at": "",
+            "label": "读取失败",
+            "message": "今日判断缓存缺少有效生成时间。",
+        }
+    now_dt = datetime.fromtimestamp(now_ts or time.time())
+    expires = _next_delivery_after(generated, profile)
+    age_hours = max(0, round((now_dt - generated).total_seconds() / 3600, 1))
+    expired = now_dt.date() > generated.date() or now_dt >= expires
+    return {
+        "status": "expired" if expired else "fresh",
+        "is_expired": expired,
+        "age_hours": age_hours,
+        "expires_at": expires.strftime("%Y-%m-%d %H:%M"),
+        "label": "已过期" if expired else "新鲜",
+        "message": (
+            f"上次生成于 {generated.strftime('%Y-%m-%d %H:%M')}，已超过今日更新窗口。当前内容仅供回看，不代表今日判断。"
+            if expired else
+            f"今日判断生成于 {generated.strftime('%Y-%m-%d %H:%M')}，有效到 {expires.strftime('%Y-%m-%d %H:%M')}。"
+        ),
+    }
+
+
+def with_signal_freshness(payload, now_ts=None, profile=None):
+    out = dict(payload or {})
+    out.setdefault("signals", [])
+    out.setdefault("attention", [])
+    out["freshness"] = signal_freshness(out, now_ts=now_ts, profile=profile)
+    return out
+
+
+def missing_signal_state(profile=None):
+    window_hours = int(((profile or load_profile()).get("editorial_rules") or {}).get("window_hours") or WINDOW_HOURS)
+    return {
+        "window_hours": window_hours,
+        "generated_at": "",
+        "breaking": None,
+        "signals": [],
+        "attention": [],
+        "freshness": {
+            "status": "missing",
+            "is_expired": True,
+            "age_hours": None,
+            "expires_at": "",
+            "label": "未生成",
+            "message": "还没有生成今日判断。运行 ./run.sh signals 后再查看。",
+        },
+    }
+
+
 def read_signal_cache():
     """页面侧：只读完整缓存，永不触发生成（绝不阻塞网页请求）。"""
     if not SIGNAL_CACHE.exists():
         return None
     try:
-        return json.loads(SIGNAL_CACHE.read_text(encoding="utf-8"))
+        payload = json.loads(SIGNAL_CACHE.read_text(encoding="utf-8"))
     except Exception:
-        return None
+        state = missing_signal_state()
+        state["freshness"] = {
+            "status": "invalid",
+            "is_expired": True,
+            "age_hours": None,
+            "expires_at": "",
+            "label": "读取失败",
+            "message": "今日判断读取失败，首页其他内容仍可查看。",
+        }
+        return state
+    return with_signal_freshness(payload)
 
 
 def read_signals():

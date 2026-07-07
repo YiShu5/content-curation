@@ -2852,6 +2852,24 @@ body { background: #F6F4F0; }   /* 暖灰底，降噪感 */
     color: #61708A;
 }
 
+.signals-state {
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(255,255,255,.72);
+    border: 1px solid rgba(37,99,235,.18);
+    color: #61708A;
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+.signals-state-expired,
+.signals-state-invalid {
+    border-color: rgba(245,158,11,.35);
+    background: #FFF7ED;
+    color: #92400E;
+}
+
 .signals-head-actions {
     display: flex;
     align-items: center;

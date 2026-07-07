@@ -392,6 +392,26 @@ def test_breaking_card_renders_action():
     print("✓ 顶级大新闻展示行动判断")
 
 
+def test_signal_freshness_daily_window():
+    profile = {"delivery": {"hour": 8, "minute": 30}}
+    payload = {"generated_at": "2026-07-07 08:31", "signals": []}
+    fresh = ts.signal_freshness(payload, now_ts=1783371600, profile=profile)
+    assert fresh["status"] == "fresh", fresh
+    assert fresh["label"] == "新鲜"
+    expired = ts.signal_freshness(payload, now_ts=1783451461, profile=profile)
+    assert expired["status"] == "expired", expired
+    assert expired["is_expired"] is True
+    print("✓ 今日判断按每日 8:30 窗口判断 freshness")
+
+
+def test_missing_signal_state():
+    state = ts.missing_signal_state({"delivery": {"hour": 8, "minute": 30}})
+    assert state["freshness"]["status"] == "missing"
+    assert state["signals"] == []
+    assert state["attention"] == []
+    print("✓ 缺失今日判断缓存有显式状态")
+
+
 if __name__ == "__main__":
     test_probe()
     test_suggest_video_selects_complement()
@@ -406,4 +426,6 @@ if __name__ == "__main__":
     test_cached_library_link_enriches_and_renders_quote()
     test_attention_card_renders_user_choice()
     test_breaking_card_renders_action()
+    test_signal_freshness_daily_window()
+    test_missing_signal_state()
     print("\n全部通过 ✅")

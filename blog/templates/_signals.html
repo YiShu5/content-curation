@@ -73,6 +73,9 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
             <span class="signals-sub">
                 AI HOT · {{ signal_meta.window_hours or 48 }} 小时滚动
                 {% if signal_meta.generated_at %} · {{ signal_meta.generated_at }}{% endif %}
+                {% if signal_meta.freshness %}
+                 · {{ signal_meta.freshness.label }}
+                {% endif %}
                 · 不凑数
             </span>
         </div>
@@ -81,6 +84,12 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
             <button class="signals-collapse" id="signalsCollapse" type="button" aria-expanded="true">收起</button>
         </div>
     </div>
+
+    {% if signal_meta.freshness and signal_meta.freshness.status in ['expired', 'missing', 'invalid'] %}
+    <div class="signals-state signals-state-{{ signal_meta.freshness.status }}">
+        {{ signal_meta.freshness.message }}
+    </div>
+    {% endif %}
 
     <div class="signals-body">
     {% if not breaking and not signals and not attention %}
