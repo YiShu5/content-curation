@@ -9,7 +9,7 @@
 
 <div class="home-layout">
     <div class="home-main">
-        {% if breaking or signals or attention or signal_ran %}
+        {% if breaking or signals or attention or signal_ran or signal_meta.freshness %}
         {% include "_signals.html" %}
         {% endif %}
 
