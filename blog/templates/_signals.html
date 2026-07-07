@@ -9,7 +9,7 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
     {% if signal.links %}
     <div class="signal-deep signal-deep-local">
         <div class="signal-deep-label">
-            {% if signal.links[0].quote %}你库里的相关金句{% else %}你库里的深度补充{% endif %}
+            {% if signal.links[0].quote %}你库里的相关金句{% else %}你库里的金句补充{% endif %}
         </div>
         {% for l in signal.links[:1] %}
         <a href="{{ l.deeplink }}" target="_blank" rel="noopener" class="signal-link {% if l.quote %}signal-quote-link{% endif %}"
