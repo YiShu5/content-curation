@@ -6,9 +6,10 @@
 
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import OpenAI from 'openai';
 import * as dotenv from 'dotenv';
+import { scoreDimensions } from './product-schema.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.join(__dirname, '..');
@@ -17,11 +18,19 @@ const CONFIG_DIR = path.join(PROJECT_ROOT, 'config');
 dotenv.config({ path: path.join(CONFIG_DIR, '.env') });
 
 // ── OpenAI 客户端 ─────────────────────────────────────────────────────────
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  baseURL: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
-});
 const MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
+
+let client;
+
+function getClient() {
+  if (!client) {
+    client = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+      baseURL: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+    });
+  }
+  return client;
+}
 
 // ── 工具函数 ──────────────────────────────────────────────────────────────
 function formatDuration(seconds) {
@@ -74,6 +83,7 @@ function buildPrompt(template, metadata, transcript) {
 
 // ── 调用 AI ───────────────────────────────────────────────────────────────
 async function callAI(prompt) {
+  const client = getClient();
   const requestParams = {
     model: MODEL,
     messages: [{ role: 'user', content: prompt }],
@@ -148,20 +158,17 @@ function formatScores(scores) {
   const total = s.total ?? '—';
   const verdictLine = `**综合评分：${total}/100　${verdict}**`;
 
-  const dims = [
-    { label: 'AI 相关性', key: 'ai_relevance', max: 40 },
-    { label: '故事性',   key: 'storytelling',  max: 30 },
-    { label: '加分项',   key: 'bonus',          max: 30 },
-  ];
+  const dims = scoreDimensions().map(d => ({
+    label: d.label,
+    key: d.key,
+    max: d.max,
+  }));
 
   const rows = dims.map(d => {
     const dim = s[d.key] || {};
     const score = dim.score ?? '—';
     const reason = dim.reason || '';
-    const items = d.key === 'bonus' && dim.items?.length
-      ? `（${dim.items.join('、')}）`
-      : '';
-    return `| ${d.label} | ${score}/${d.max} | ${reason}${items} |`;
+    return `| ${d.label} | ${score}/${d.max} | ${reason} |`;
   });
 
   return `\n## 内容评分\n\n${verdictLine}\n\n| 维度 | 得分 | 评分依据 |\n|------|------|----------|\n${rows.join('\n')}\n`;
@@ -229,9 +236,7 @@ function writeMetadataMd(archiveDir, result, metadata) {
   const scoreDetail = sc.total != null ? `
 | 维度 | 得分 | 依据 |
 |------|------|------|
-| AI 相关性 | ${sc.ai_relevance?.score ?? '—'}/40 | ${sc.ai_relevance?.reason || ''} |
-| 故事性 | ${sc.storytelling?.score ?? '—'}/30 | ${sc.storytelling?.reason || ''} |
-| 加分项 | ${sc.bonus?.score ?? '—'}/30 | ${sc.bonus?.reason || ''}${sc.bonus?.items?.length ? `（${sc.bonus.items.join('、')}）` : ''} |
+${scoreDimensions().map(d => `| ${d.label} | ${sc[d.key]?.score ?? '—'}/${d.max} | ${sc[d.key]?.reason || ''} |`).join('\n')}
 ` : '';
 
   const content = `# ${result.chinese_title || metadata.title}
@@ -348,7 +353,7 @@ async function main() {
     console.log(`  [完成] 标题: "${updated.chinese_title}"`);
     if (result.scores?.total != null) {
       const sc = result.scores;
-      console.log(`  评分: ${sc.total}/100 (${sc.verdict})  AI相关性:${sc.ai_relevance?.score}  故事性:${sc.storytelling?.score}  加分项:${sc.bonus?.score}`);
+      console.log(`  评分: ${sc.total}/100 (${sc.verdict})  洞察原创:${sc.insight?.score}  信源质量:${sc.source?.score}  故事可读:${sc.storytelling?.score}`);
     }
     if (result.guests?.length) {
       console.log(`  嘉宾: ${result.guests.join('、')}`);
@@ -377,4 +382,8 @@ async function main() {
   }
 }
 
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  main();
+}
+
+export { formatScores };
