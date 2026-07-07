@@ -160,7 +160,9 @@
                     {% for r in related %}
                     <a href="/article/{{ r.id }}" class="d-related-card">
                         <div class="d-related-cover">
-                            {% if r.cover_token %}
+                            {% if r.cover_url %}
+                            <img src="{{ r.cover_url }}" alt="{{ r.title }}" loading="lazy">
+                            {% elif r.cover_token %}
                             <img src="/cover/{{ r.cover_token }}" alt="{{ r.title }}" loading="lazy">
                             {% else %}<div class="d-related-ph"></div>{% endif %}
                             <span class="d-related-sim">{{ r.score }}% 相似</span>
