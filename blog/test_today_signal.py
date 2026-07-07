@@ -3,6 +3,7 @@
 运行：blog/.venv/bin/python blog/test_today_signal.py
 """
 
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -434,6 +435,29 @@ def test_read_signal_cache_marks_non_dict_json_invalid():
     print("✓ 非对象 JSON 今日判断缓存返回显式 invalid 状态")
 
 
+def test_read_signal_cache_marks_malformed_object_fields_invalid():
+    old_cache = ts.SIGNAL_CACHE
+    payload = {
+        "generated_at": "2026-07-07 08:31",
+        "signals": 42,
+        "attention": [],
+    }
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            path = Path(td) / "malformed-object.json"
+            path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            ts.SIGNAL_CACHE = path
+            cache = ts.read_signal_cache()
+        finally:
+            ts.SIGNAL_CACHE = old_cache
+
+    assert cache is not None
+    assert cache["freshness"]["status"] == "invalid", cache
+    assert cache["signals"] == []
+    assert cache["attention"] == []
+    print("✓ 对象 JSON 今日判断缓存字段形状异常时返回显式 invalid 状态")
+
+
 if __name__ == "__main__":
     test_probe()
     test_suggest_video_selects_complement()
@@ -451,4 +475,5 @@ if __name__ == "__main__":
     test_signal_freshness_daily_window()
     test_missing_signal_state()
     test_read_signal_cache_marks_non_dict_json_invalid()
+    test_read_signal_cache_marks_malformed_object_fields_invalid()
     print("\n全部通过 ✅")

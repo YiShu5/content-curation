@@ -1178,6 +1178,13 @@ def _invalid_signal_state(message="今日判断读取失败，首页其他内容
     return state
 
 
+def _has_malformed_signal_cache_fields(payload):
+    for field in ("signals", "attention"):
+        if field in payload and not isinstance(payload.get(field), list):
+            return True
+    return False
+
+
 def read_signal_cache():
     """页面侧：只读完整缓存，永不触发生成（绝不阻塞网页请求）。"""
     if not SIGNAL_CACHE.exists():
@@ -1188,6 +1195,8 @@ def read_signal_cache():
         return _invalid_signal_state()
     if not isinstance(payload, dict):
         return _invalid_signal_state("今日判断缓存格式异常，首页其他内容仍可查看。")
+    if _has_malformed_signal_cache_fields(payload):
+        return _invalid_signal_state("今日判断缓存字段格式异常，首页其他内容仍可查看。")
     try:
         return with_signal_freshness(payload)
     except (TypeError, ValueError):
