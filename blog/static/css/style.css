@@ -2105,6 +2105,20 @@ a { color: inherit; text-decoration: none; }
     letter-spacing: .02em;
 }
 .signal-breaking .signal-deep-label { color: rgba(255,255,255,.58); }
+.signal-pending-evidence {
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: #F8FAFC;
+    border: 1px dashed rgba(37,99,235,.24);
+    color: #61708A;
+    font-size: 13px;
+    line-height: 1.55;
+}
+.signal-breaking .signal-pending-evidence {
+    background: rgba(255,255,255,.10);
+    border-color: rgba(255,255,255,.22);
+    color: rgba(255,255,255,.72);
+}
 .signal-link {
     display: flex;
     align-items: center;

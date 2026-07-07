@@ -62,6 +62,11 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
             </div>
         </div>
     </div>
+    {% elif signal.manual_promoted and signal.evidence_status == 'pending' %}
+    <div class="signal-deep signal-deep-pending">
+        <div class="signal-deep-label">你手动加入 · 待补证据</div>
+        <div class="signal-pending-evidence">已加入判断，下一轮生成会尝试补库内金句或外部深度补充。</div>
+    </div>
     {% endif %}
 {%- endmacro %}
 

@@ -213,6 +213,38 @@ def test_promote_attention_item_adds_manual_signal_without_file_write():
     print("✓ 用户确认后热议候选可加入首页判断")
 
 
+def test_evidence_status_for_signal_shapes():
+    assert ts.evidence_status({"links": [{"title": "库内"}]}) == "linked"
+    assert ts.evidence_status({"suggest": {"title": "外部视频"}}) == "suggested"
+    assert ts.evidence_status({"links": [], "suggest": None}) == "pending"
+    print("✓ evidence status follows links/suggest/pending")
+
+
+def test_promoted_attention_without_links_has_pending_evidence():
+    old_write = ts._write_signal_cache
+    try:
+        ts._write_signal_cache = lambda payload: payload
+        cache = {
+            "signals": [],
+            "attention": [{
+                "item_id": "hot-pending",
+                "title": "一条热议内容",
+                "url": "https://example.com/hot",
+                "source": "AI HOT",
+                "summary": "很多人在讨论。",
+                "why": "需要用户确认是否值得看。",
+                "suggested_slot": "industry_trend",
+            }],
+        }
+        updated, changed = ts.promote_attention_item(cache, "hot-pending")
+    finally:
+        ts._write_signal_cache = old_write
+    assert changed is True
+    assert updated["signals"][0]["manual_promoted"] is True
+    assert updated["signals"][0]["evidence_status"] == "pending"
+    print("✓ 手动加入但暂无证据时显示 pending")
+
+
 def test_behavior_summary_positive_events_only():
     old_path = prefs.CLICK_LOG
     profile = {
@@ -492,6 +524,8 @@ if __name__ == "__main__":
     test_priority_model_research_overrides_generic_industry_trend()
     test_attention_candidate_surfaces_buzzy_unselected_item()
     test_promote_attention_item_adds_manual_signal_without_file_write()
+    test_evidence_status_for_signal_shapes()
+    test_promoted_attention_without_links_has_pending_evidence()
     test_behavior_summary_positive_events_only()
     test_suggestion_card_renders_explicit_confirmation_without_scores()
     test_cached_library_link_enriches_and_renders_quote()

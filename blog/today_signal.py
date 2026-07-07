@@ -313,6 +313,14 @@ def _pick_local_quote(record, news_vec=None):
     return out
 
 
+def evidence_status(signal):
+    if (signal or {}).get("links"):
+        return "linked"
+    if (signal or {}).get("suggest"):
+        return "suggested"
+    return "pending"
+
+
 def enrich_cached_link_quotes(cache, records):
     """给旧缓存里的库内链接补上金句，避免必须等下一次后台生成才生效。"""
     cache = dict(cache or {})
@@ -332,6 +340,7 @@ def enrich_cached_link_quotes(cache, records):
                     link.update(quote)
             enriched_links.append(link)
         signal["links"] = enriched_links
+        signal["evidence_status"] = evidence_status(signal)
         return signal
 
     if isinstance(cache.get("breaking"), dict):
@@ -598,6 +607,7 @@ def promote_attention_item(cache, item_id):
         "links": [],
         "manual_promoted": True,
     })
+    signal["evidence_status"] = evidence_status(signal)
     if not any(s.get("item_id") == signal.get("item_id") for s in signals):
         signals.append(signal)
     cache["signals"] = signals
