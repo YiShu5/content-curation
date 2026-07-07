@@ -1,4 +1,19 @@
-<a href="/article/{{ r.id }}" class="card" target="_blank" data-topic="{{ r.topic or '' }}" data-verdict="{{ r.score_verdict or '' }}">
+{% set verdict_colors = {'必读':'#EF4444','强烈推荐':'#F59E0B','推荐':'#10B981','一般':'#9CA3AF','可跳过':'#CBD5E1'} %}
+{% set scores = r.scores or {} %}
+{% set insight_score = scores.insight.score if scores.insight else 0 %}
+{% set source_score = scores.source.score if scores.source else 0 %}
+{% set story_score = scores.storytelling.score if scores.storytelling else 0 %}
+{% set source_label = r.platform or '深度库' %}
+{% set preview = r.summary | strip_md %}
+
+<article class="card"
+         role="link"
+         tabindex="0"
+         aria-label="打开：{{ r.title }}"
+         data-href="/article/{{ r.id }}"
+         data-card-title="{{ r.title }}"
+         data-topic="{{ r.topic or '' }}"
+         data-verdict="{{ r.score_verdict or '' }}">
     <div class="card-cover">
         {% if r.cover_url %}
         <img src="{{ r.cover_url }}" alt="{{ r.title }}" loading="lazy">
@@ -20,37 +35,58 @@
             {% endif %}
         </div>
     </div>
+
     <div class="card-body">
+        <div class="card-source">
+            <span class="card-source-icon">{{ source_label[0] }}</span>
+            <span class="card-source-text">{{ source_label }}</span>
+            {% if r.creator %}
+            <span class="card-source-creator">· {{ r.creator }}</span>
+            {% endif %}
+            {% if r.pub_date %}
+            <span class="card-date">{{ r.pub_date }}</span>
+            {% endif %}
+        </div>
+
+        <h2 class="card-title">{{ r.title }}</h2>
+
         <div class="card-tags">
-            <span class="tag">{{ r.platform }}</span>
+            {% if r.score_verdict %}
+            <span class="tag tag-verdict" style="--verdict-color: {{ verdict_colors.get(r.score_verdict, '#9CA3AF') }}">{{ r.score_verdict }}</span>
+            {% endif %}
             {% if r.topic %}
             <span class="tag tag-topic">{{ r.topic }}</span>
             {% endif %}
             {% if r.guests and r.guests.strip() %}
-            <span class="tag tag-guest">+{{ r.guests.split('、') | select | list | length }}</span>
+            <span class="tag tag-guest">嘉宾 {{ r.guests.split('、') | select | list | length }}</span>
             {% endif %}
-            <span class="card-date">{{ r.pub_date }}</span>
         </div>
-        <h2 class="card-title">{{ r.title }}</h2>
+
         {% if r.score_total is not none %}
-        <div class="card-scores">
+        <div class="card-score-bars" aria-label="内容评分">
             <span class="card-score-total">{{ r.score_total }}<small>分</small></span>
-            <span class="card-dim"><i style="background:#3B82F6"></i>洞察 {{ r.scores.insight.score if r.scores.insight else 0 }}</span>
-            <span class="card-dim"><i style="background:#10B981"></i>信源 {{ r.scores.source.score if r.scores.source else 0 }}</span>
-            <span class="card-dim"><i style="background:#8B5CF6"></i>可读 {{ r.scores.storytelling.score if r.scores.storytelling else 0 }}</span>
+            <span class="score-mini score-insight" style="--pct: {{ (insight_score / 50 * 100)|round(0) }}%">
+                <span>洞察</span><i><b></b></i><em>{{ insight_score }}</em>
+            </span>
+            <span class="score-mini score-source" style="--pct: {{ (source_score / 25 * 100)|round(0) }}%">
+                <span>信源</span><i><b></b></i><em>{{ source_score }}</em>
+            </span>
+            <span class="score-mini score-story" style="--pct: {{ (story_score / 25 * 100)|round(0) }}%">
+                <span>可读</span><i><b></b></i><em>{{ story_score }}</em>
+            </span>
         </div>
         {% endif %}
-        {% if r.creator %}
-        <p class="card-creator">
-            <span class="creator-avatar">{{ r.creator[0] }}</span>
-            {{ r.creator }}
-        </p>
-        {% endif %}
-        {% set preview = r.summary | strip_md %}
+
         {% if preview %}
         <div class="card-insight">
-            <p class="card-insight-text">{{ preview[:100] }}{% if preview|length > 100 %}…{% endif %}</p>
+            <div class="card-insight-head">
+                <span>背景介绍</span>
+                {% if preview|length > 48 %}
+                <button class="card-expand-btn" type="button" aria-expanded="false">展开</button>
+                {% endif %}
+            </div>
+            <p class="card-insight-text">{{ preview }}</p>
         </div>
         {% endif %}
     </div>
-</a>
+</article>

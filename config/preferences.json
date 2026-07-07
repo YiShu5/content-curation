@@ -1,0 +1,82 @@
+{
+  "user": {
+    "role": "AI 产品经理",
+    "current_product": "降噪",
+    "current_problem": "AI 信息太多，看不完，需要尽可能少但足以判断是否值得继续看的推荐",
+    "market": "全球市场",
+    "trend_horizon": "未来 1–3 个月"
+  },
+  "daily_slots": [
+    {
+      "key": "consumer_growth",
+      "label": "C 端 AI 产品与增长",
+      "description": "C 端 AI 产品、用户获取、激活、留存、订阅与增长案例"
+    },
+    {
+      "key": "traffic_monetization",
+      "label": "流量模式与商业化",
+      "description": "流量分发、商业模式、定价、付费转化、广告与平台模式"
+    },
+    {
+      "key": "industry_trend",
+      "label": "1–3 个月行业趋势",
+      "description": "可能在未来 1–3 个月影响 AI 产品设计、竞争格局或用户行为的趋势"
+    }
+  ],
+  "breaking_news": {
+    "max_items": 1,
+    "requirements": [
+      "官方正式发布，或有明确开放时间",
+      "能力、模态、价格或产品形态发生明显变化",
+      "可能影响未来 1–3 个月的产品设计",
+      "传闻、泄漏、单纯跑分和小更新不算"
+    ],
+    "actions": [
+      "本周应该测试",
+      "值得持续关注",
+      "暂时知道即可"
+    ]
+  },
+  "editorial_rules": {
+    "source_pool": "AI HOT",
+    "window_hours": 48,
+    "allow_empty_slots": true,
+    "reject": [
+      "营销软文",
+      "没有事实或案例支撑的宣传结论",
+      "纯融资与人事新闻",
+      "工具清单和蹭热点内容"
+    ],
+    "prefer": [
+      "一手信息源",
+      "原始研究或数据",
+      "可迁移的方法论",
+      "能帮助 AI 产品经理做近期判断的内容",
+      "官方研究揭示模型内部机制、隐性推理、可解释性、评估或风控新方法，并可能影响未来 1–3 个月 AI 产品可信度设计"
+    ],
+    "priority_lanes": [
+      {
+        "key": "model_inner_workings",
+        "slot": "industry_trend",
+        "label": "模型内部机制与可解释性",
+        "rule": "Anthropic、OpenAI、DeepMind 等一手研究如果揭示模型内部表征、隐性推理、隐藏目标、评估感知或可解释性监测方法，默认应进入 1–3 个月行业趋势；它不一定是顶级大新闻，但对 AI 产品评估、风控和可信度设计有迁移价值。"
+      }
+    ]
+  },
+  "learning": {
+    "enabled": true,
+    "days": 90,
+    "event_weights": {
+      "open_breaking": 1.5,
+      "open_news": 0.5,
+      "open_local": 1.5,
+      "watch_video": 1.0,
+      "deep_library": 3.0
+    }
+  },
+  "delivery": {
+    "hour": 8,
+    "minute": 30,
+    "instant_push": false
+  }
+}

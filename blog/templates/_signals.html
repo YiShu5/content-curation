@@ -1,60 +1,272 @@
-<section class="signals">
-    <div class="signals-head">
-        <span class="signals-title">🔥 今日 AI 必读</span>
-        <span class="signals-sub">AI HOT 全网 · {% if signals %}已降噪到 {{ signals|length }} 条{% else %}今日无 top-0 大事{% endif %}</span>
-    </div>
-    {% if not signals %}
-    <div class="signals-empty">今天 AI 圈没有 top-0 级大事 —— 没消息，也是一种降噪 🔇</div>
-    {% endif %}
-    <div class="signals-list">
-        {% for s in signals %}
-        <div class="signal-item">
-            <div class="signal-news">
-                <span class="signal-rank">{{ loop.index }}</span>
-                {% if s.category %}<span class="signal-cat">{{ s.category }}</span>{% endif %}
-                <a href="{{ s.url }}" target="_blank" rel="noopener" class="signal-news-title">{{ s.title }}</a>
-                <span class="signal-source">{{ s.source }}</span>
-            </div>
-            {% if s.why %}<p class="signal-why"><span class="signal-why-tag">为什么重要</span>{{ s.why }}</p>{% endif %}
-            {% if s.summary %}<p class="signal-summary">{{ s.summary }}</p>{% endif %}
-            {% if s.links %}
-            <div class="signal-links">
-                <span class="signal-links-label">📺 你库里的相关深度内容</span>
-                {% for l in s.links %}
-                <a href="{{ l.deeplink }}" target="_blank" rel="noopener" class="signal-link">
-                    <span class="signal-link-platform">{{ l.platform }}</span>
-                    <span class="signal-link-title">{{ l.title }}</span>
-                    {% if l.ts %}<span class="signal-link-ts">▶ {{ l.ts }}</span>{% endif %}
-                    <span class="signal-link-match">{{ l.match }}%</span>
-                </a>
-                {% endfor %}
-            </div>
-            {% elif s.suggest %}
-            <div class="signal-suggest">
-                <span class="signal-suggest-label">💡 库里还没有，建议入库</span>
-                <div class="signal-suggest-card">
-                    <div class="signal-suggest-info">
-                        <div class="signal-suggest-title">{{ s.suggest.title }}</div>
-                        <div class="signal-suggest-meta">{{ s.suggest.channel }} · {{ s.suggest.dur_min }} 分钟{% if s.suggest.from_whitelist %} · ⭐白名单{% endif %}</div>
-                    </div>
-                    <button class="signal-ingest-btn" data-url="{{ s.suggest.url }}">＋ 入库</button>
-                </div>
-            </div>
-            {% endif %}
+{% macro track_attrs(kind, signal, source='aihot', item_id='') -%}
+data-track-kind="{{ kind }}"
+data-track-slot="{{ signal.slot or ('breaking' if signal.is_breaking else '') }}"
+data-track-source="{{ source }}"
+data-track-item-id="{{ item_id or signal.item_id or '' }}"
+{%- endmacro %}
+
+{% macro render_deep(signal) -%}
+    {% if signal.links %}
+    <div class="signal-deep signal-deep-local">
+        <div class="signal-deep-label">
+            {% if signal.links[0].quote %}你库里的相关金句{% else %}你库里的深度补充{% endif %}
         </div>
+        {% for l in signal.links[:1] %}
+        <a href="{{ l.deeplink }}" target="_blank" rel="noopener" class="signal-link {% if l.quote %}signal-quote-link{% endif %}"
+           {{ track_attrs('open_local', signal, 'library', l.record_id) }}>
+            {% if l.quote %}
+            <span class="signal-quote-mark">“</span>
+            <span class="signal-quote-main">
+                <span class="signal-quote-text">{{ l.quote }}</span>
+                <span class="signal-quote-meta">
+                    {% if l.quote_speaker %}{{ l.quote_speaker }} 说{% else %}库内总结{% endif %}
+                    · {{ l.title }}
+                    {% if l.platform %} · {{ l.platform }}{% endif %}
+                </span>
+            </span>
+            {% else %}
+            <span class="signal-link-platform">{{ l.platform or '深度库' }}</span>
+            <span class="signal-link-title">{{ l.title }}</span>
+            {% endif %}
+            {% if l.ts %}<span class="signal-link-ts">从 {{ l.ts }} 看</span>{% endif %}
+        </a>
         {% endfor %}
     </div>
+    {% elif signal.suggest %}
+    <div class="signal-deep signal-deep-external">
+        <div class="signal-deep-label">库里缺这一块 · 外部补充 1 条</div>
+        <div class="signal-suggest-card">
+            <div class="signal-suggest-info">
+                <a class="signal-suggest-title" href="{{ signal.suggest.url }}" target="_blank" rel="noopener"
+                   {{ track_attrs('watch_video', signal, 'youtube', signal.suggest.id) }}>
+                    {{ signal.suggest.title }}
+                </a>
+                {% if signal.suggest.complement_reason %}
+                <p class="signal-suggest-reason"><span>补足</span>{{ signal.suggest.complement_reason }}</p>
+                {% endif %}
+                <div class="signal-suggest-meta">
+                    {{ signal.suggest.channel }} · {{ signal.suggest.dur_min }} 分钟
+                    {% if signal.suggest.published %} · {{ signal.suggest.published }}{% endif %}
+                    {% if signal.suggest.from_whitelist %} · ⭐可信源{% endif %}
+                </div>
+            </div>
+            <div class="signal-suggest-actions">
+                <a class="signal-watch-link" href="{{ signal.suggest.url }}" target="_blank" rel="noopener"
+                   {{ track_attrs('watch_video', signal, 'youtube', signal.suggest.id) }}>先看视频 ↗</a>
+                <button class="signal-ingest-btn"
+                        data-url="{{ signal.suggest.url }}"
+                        data-title="{{ signal.suggest.title }}"
+                        data-track-slot="{{ signal.slot or ('breaking' if signal.is_breaking else '') }}"
+                        data-track-source="youtube"
+                        data-track-item-id="{{ signal.suggest.id }}">＋ 加入深度库</button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+{%- endmacro %}
+
+<section class="signals" aria-label="今日核心推荐">
+    <div class="signals-head">
+        <div>
+            <span class="signals-eyebrow">今日核心推荐</span>
+            <span class="signals-title">🔥 今日 AI 判断</span>
+            <span class="signals-sub">
+                AI HOT · {{ signal_meta.window_hours or 48 }} 小时滚动
+                {% if signal_meta.generated_at %} · {{ signal_meta.generated_at }}{% endif %}
+                · 不凑数
+            </span>
+        </div>
+        <div class="signals-head-actions">
+            <span class="signals-note">每条只回答：值不值得继续看</span>
+            <button class="signals-collapse" id="signalsCollapse" type="button" aria-expanded="true">收起</button>
+        </div>
+    </div>
+
+    <div class="signals-body">
+    {% if not breaking and not signals and not attention %}
+    <div class="signals-empty">过去 {{ signal_meta.window_hours or 48 }} 小时没有达到门槛的内容。空出来，也是在帮你降噪。</div>
+    {% endif %}
+
+    {% if attention %}
+    <div class="signal-attention-wrap" aria-label="热议浮现">
+        <div class="signal-attention-head">
+            <span class="signal-attention-dot"></span>
+            <span class="signal-attention-title">热议浮现</span>
+            <span class="signal-attention-sub">很多人在提，但先不自动塞进判断</span>
+        </div>
+        {% for a in attention %}
+        <article class="signal-attention-card"
+                 data-signal-slot="attention"
+                 data-signal-source="{{ a.source or 'AI HOT' }}"
+                 data-signal-item-id="{{ a.item_id or '' }}">
+            <div class="signal-attention-meta">
+                <span>{{ a.buzz_label or '讨论度高' }}</span>
+                {% if a.source %}<span>{{ a.source }}</span>{% endif %}
+            </div>
+            <a href="{{ a.url }}" target="_blank" rel="noopener" class="signal-attention-link"
+               data-track-kind="open_attention"
+               data-track-slot="attention"
+               data-track-source="{{ a.source or 'aihot' }}"
+               data-track-item-id="{{ a.item_id or '' }}">{{ a.title }}</a>
+            {% if a.summary %}<p class="signal-attention-summary">{{ a.summary }}</p>{% endif %}
+            {% if a.buzz_reason %}<p class="signal-attention-reason">{{ a.buzz_reason }}</p>{% endif %}
+            <div class="signal-attention-actions">
+                <button class="signal-attention-btn signal-attention-promote"
+                        data-action="promote"
+                        data-item-id="{{ a.item_id }}"
+                        data-title="{{ a.title }}"
+                        data-url="{{ a.url }}"
+                        data-source="{{ a.source or 'AI HOT' }}">加入首页判断</button>
+                <button class="signal-attention-btn signal-attention-dismiss"
+                        data-action="dismiss"
+                        data-item-id="{{ a.item_id }}"
+                        data-title="{{ a.title }}"
+                        data-url="{{ a.url }}"
+                        data-source="{{ a.source or 'AI HOT' }}">先不加</button>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if breaking %}
+    <article class="signal-item signal-breaking"
+             data-signal-slot="breaking"
+             data-signal-source="{{ breaking.source or 'AI HOT' }}"
+             data-signal-item-id="{{ breaking.item_id or '' }}">
+        <div class="signal-kicker">
+            <span class="signal-kicker-badge">BIG</span>
+            <span>顶级大新闻</span>
+            {% if breaking.verification_label %}<span class="signal-verified">{{ breaking.verification_label }}</span>{% endif %}
+        </div>
+        <div class="signal-news">
+            <a href="{{ breaking.url }}" target="_blank" rel="noopener" class="signal-news-title"
+               {{ track_attrs('open_breaking', breaking, 'aihot') }}>{{ breaking.title }}</a>
+            {% if breaking.source %}<span class="signal-source">{{ breaking.source }}</span>{% endif %}
+            {% if breaking.action %}<span class="signal-action">{{ breaking.action }}</span>{% endif %}
+        </div>
+        {% if breaking.summary %}<p class="signal-summary">{{ breaking.summary }}</p>{% endif %}
+        {% if breaking.why %}<p class="signal-why"><span class="signal-why-tag">行动判断</span>{{ breaking.why }}</p>{% endif %}
+        {{ render_deep(breaking) }}
+    </article>
+    {% endif %}
+
+    {% if signals %}
+    <div class="signals-list">
+        {% for s in signals %}
+        <article class="signal-item signal-slot"
+                 data-signal-slot="{{ s.slot or '' }}"
+                 data-signal-source="{{ s.source or 'AI HOT' }}"
+                 data-signal-item-id="{{ s.item_id or '' }}">
+            <div class="signal-slot-head">
+                <span class="signal-rank">{{ loop.index }}</span>
+                <span class="signal-slot-label">{{ s.slot_label or '日常判断' }}</span>
+                {% if s.verification_label %}<span class="signal-verified">{{ s.verification_label }}</span>{% endif %}
+            </div>
+            <div class="signal-news">
+                <a href="{{ s.url }}" target="_blank" rel="noopener" class="signal-news-title"
+                   {{ track_attrs('open_news', s, 'aihot') }}>{{ s.title }}</a>
+                {% if s.source %}<span class="signal-source">{{ s.source }}</span>{% endif %}
+            </div>
+            {% if s.summary %}<p class="signal-summary">{{ s.summary }}</p>{% endif %}
+            {% if s.why %}<p class="signal-why"><span class="signal-why-tag">为什么重要</span>{{ s.why }}</p>{% endif %}
+            {{ render_deep(s) }}
+        </article>
+        {% endfor %}
+    </div>
+    {% endif %}
+    </div>
+
     <script>
     (function () {
+        var box = document.querySelector('.signals');
+        var collapse = document.getElementById('signalsCollapse');
+        if (box && collapse) {
+            var saved = localStorage.getItem('nf_signals_collapsed') === '1';
+            function renderCollapsed(collapsed) {
+                box.classList.toggle('collapsed', collapsed);
+                collapse.textContent = collapsed ? '展开' : '收起';
+                collapse.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            }
+            renderCollapsed(saved);
+            collapse.addEventListener('click', function () {
+                var next = !box.classList.contains('collapsed');
+                localStorage.setItem('nf_signals_collapsed', next ? '1' : '0');
+                renderCollapsed(next);
+            });
+        }
+        function track(payload) {
+            try {
+                var body = JSON.stringify(payload);
+                if (navigator.sendBeacon) {
+                    navigator.sendBeacon('/track', new Blob([body], { type: 'application/json' }));
+                } else {
+                    fetch('/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true });
+                }
+            } catch (e) {}
+        }
         document.querySelectorAll('.signal-ingest-btn').forEach(function (b) {
             b.addEventListener('click', function () {
-                b.disabled = true; b.textContent = '入库中…';
-                fetch('/ingest?url=' + encodeURIComponent(b.dataset.url))
+                var title = b.dataset.title || '这个视频';
+                var url = b.dataset.url || '';
+                if (!window.confirm('确认将「' + title + '」加入深度库，并开始转录与改写吗？')) return;
+                track({
+                    kind: 'deep_library',
+                    label: title,
+                    href: url,
+                    slot: b.dataset.trackSlot || '',
+                    source: b.dataset.trackSource || 'youtube',
+                    item_id: b.dataset.trackItemId || ''
+                });
+                b.disabled = true;
+                b.textContent = '入库中…';
+                fetch('/ingest', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url })
+                })
                     .then(function (r) { return r.json(); })
                     .then(function (d) {
-                        b.textContent = d.status === 'started' ? '入库中 · 几分钟后刷新' : '失败';
+                        b.textContent = d.status === 'started' ? '入库中 · 几分钟后刷新' : '入库失败';
+                        if (d.status !== 'started') b.disabled = false;
                     })
-                    .catch(function () { b.textContent = '失败'; b.disabled = false; });
+                    .catch(function () {
+                        b.textContent = '入库失败';
+                        b.disabled = false;
+                    });
+            });
+        });
+        document.querySelectorAll('.signal-attention-btn').forEach(function (b) {
+            b.addEventListener('click', function () {
+                var action = b.dataset.action || '';
+                var title = b.dataset.title || '这条内容';
+                if (action === 'promote' && !window.confirm('把「' + title + '」加入首页判断吗？')) return;
+                b.disabled = true;
+                b.textContent = action === 'promote' ? '加入中…' : '已忽略…';
+                fetch('/signal/attention', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: action,
+                        item_id: b.dataset.itemId || '',
+                        label: title,
+                        href: b.dataset.url || '',
+                        source: b.dataset.source || 'AI HOT'
+                    })
+                })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        if (d.status === 'ok') {
+                            window.location.reload();
+                            return;
+                        }
+                        b.textContent = '没找到';
+                        b.disabled = false;
+                    })
+                    .catch(function () {
+                        b.textContent = '失败';
+                        b.disabled = false;
+                    });
             });
         });
     })();
