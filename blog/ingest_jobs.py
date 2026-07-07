@@ -66,7 +66,8 @@ def find_existing_archive(url):
             meta = json.loads(mp.read_text(encoding="utf-8"))
         except Exception:
             continue
-        if meta.get("id") == video_id or content_key(meta.get("url") or "") == key:
+        matches_archive = meta.get("id") == video_id or content_key(meta.get("url") or "") == key
+        if matches_archive and meta.get("rewrite_complete") is True:
             return str(mp.parent)
     return ""
 
