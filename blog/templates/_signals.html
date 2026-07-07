@@ -219,6 +219,31 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
                 }
             } catch (e) {}
         }
+        function renderIngestButton(b, job) {
+            var status = job.status || '';
+            b.dataset.jobId = job.job_id || b.dataset.jobId || '';
+            if (status === 'queued') b.textContent = '已提交';
+            else if (status === 'running') b.textContent = '入库中…';
+            else if (status === 'done') { b.textContent = '已加入深度库'; b.disabled = true; }
+            else if (status === 'exists') { b.textContent = '已在深度库'; b.disabled = true; }
+            else if (status === 'failed') { b.textContent = '入库失败'; b.disabled = false; b.title = job.message || '入库失败'; }
+        }
+        function pollIngest(b) {
+            var jobId = b.dataset.jobId || '';
+            if (!jobId) return;
+            fetch('/ingest/status?job_id=' + encodeURIComponent(jobId))
+                .then(function (r) { return r.json(); })
+                .then(function (job) {
+                    renderIngestButton(b, job);
+                    if (job.status === 'queued' || job.status === 'running') {
+                        setTimeout(function () { pollIngest(b); }, 3000);
+                    }
+                })
+                .catch(function () {
+                    b.textContent = '状态未知';
+                    b.disabled = false;
+                });
+        }
         document.querySelectorAll('.signal-ingest-btn').forEach(function (b) {
             b.addEventListener('click', function () {
                 var title = b.dataset.title || '这个视频';
@@ -237,12 +262,14 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
                 fetch('/ingest', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: url })
+                    body: JSON.stringify({ url: url, title: title })
                 })
                     .then(function (r) { return r.json(); })
-                    .then(function (d) {
-                        b.textContent = d.status === 'started' ? '入库中 · 几分钟后刷新' : '入库失败';
-                        if (d.status !== 'started') b.disabled = false;
+                    .then(function (job) {
+                        renderIngestButton(b, job);
+                        if (job.job_id && (job.status === 'queued' || job.status === 'running')) {
+                            pollIngest(b);
+                        }
                     })
                     .catch(function () {
                         b.textContent = '入库失败';

@@ -460,20 +460,25 @@ def detail(record_id):
 
 @app.route("/ingest", methods=["GET", "POST"])
 def ingest():
-    """加入深度库：抓取 YouTube → 改写 → 重建索引（后台跑，立即返回）。"""
+    """加入深度库：创建本地 job，后台抓取 YouTube → 改写 → 重建索引。"""
+    import ingest_jobs
     body = request.get_json(silent=True) or {}
     url = body.get("url") or request.args.get("url", "")
-    if not _re.match(r'^https://(www\.)?(youtube\.com/watch\?v=|youtu\.be/)[\w-]{11}', url):
-        return {"status": "bad_url"}, 400
-    import subprocess
-    import shlex
-    root = Path(__file__).parent.parent
-    cmd = (f'cd {shlex.quote(str(root))} && '
-           f'.venv/bin/python scripts/fetch.py --url {shlex.quote(url)} && '
-           f'bash run.sh refresh')
-    subprocess.Popen(["bash", "-lc", cmd],
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return {"status": "started"}
+    title = body.get("title") or request.args.get("title", "")
+    job = ingest_jobs.start_job(url, title=title)
+    if job.get("status") == "bad_url":
+        return job, 400
+    return job
+
+
+@app.route("/ingest/status")
+def ingest_status():
+    import ingest_jobs
+    job_id = request.args.get("job_id", "")
+    job = ingest_jobs.get_job(job_id)
+    if not job:
+        return {"status": "not_found"}, 404
+    return job
 
 
 @app.route("/signal/attention", methods=["POST"])
