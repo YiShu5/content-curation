@@ -52,6 +52,7 @@ if _env_path.exists():
         pass  # dotenv 未安装时跳过，依赖系统环境变量
 
 from config import Config
+from product_schema import TOPICS
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -254,9 +255,6 @@ def load_archive_records():
 
 
 # ── 路由 ──────────────────────────────────────────────────────────────────
-TOPICS = ['AI 前沿', 'AI 产品', 'AI 创业', 'AI 商业', 'AI 编程', '投资', '个人效率', '其他']
-
-
 @app.route("/")
 def index():
     records = load_archive_records()
