@@ -67,10 +67,13 @@
     "enabled": true,
     "days": 90,
     "event_weights": {
-      "open_breaking": 1.5,
+      "card": 0.3,
+      "open_attention": 0.5,
       "open_news": 0.5,
-      "open_local": 1.5,
       "watch_video": 1.0,
+      "open_breaking": 1.5,
+      "open_local": 1.5,
+      "promote_attention": 2.0,
       "deep_library": 3.0
     }
   },
