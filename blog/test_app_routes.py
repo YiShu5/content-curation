@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import app as app_module
 from app import app
 import today_signal
 
@@ -74,8 +75,45 @@ def test_detail_related_prefers_cover_url():
     print("✓ detail related prefers cover_url")
 
 
+def test_missing_attention_promote_does_not_write_positive_log():
+    original_cache = today_signal.SIGNAL_CACHE
+    original_app_file = app_module.__file__
+    try:
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            today_signal.SIGNAL_CACHE = tmp_path / "today_signal.json"
+            today_signal.SIGNAL_CACHE.write_text(
+                '{"generated_at":"2026-07-07 08:31","signals":[],"attention":[]}',
+                encoding="utf-8",
+            )
+            app_module.__file__ = str(tmp_path / "app.py")
+
+            client = app.test_client()
+            resp = client.post(
+                "/signal/attention",
+                json={
+                    "action": "promote",
+                    "item_id": "missing",
+                    "label": "不存在的热议",
+                    "href": "https://example.com/missing",
+                    "source": "AI HOT",
+                },
+            )
+            log_path = tmp_path / "data" / "clicks.log"
+            log_exists = log_path.exists()
+    finally:
+        app_module.__file__ = original_app_file
+        today_signal.SIGNAL_CACHE = original_cache
+
+    assert resp.status_code == 200
+    assert resp.get_json()["status"] == "not_found"
+    assert not log_exists
+    print("✓ missing promote does not create positive behavior log")
+
+
 if __name__ == "__main__":
     test_homepage_renders()
     test_homepage_shows_missing_signal_state_when_cache_absent()
     test_detail_related_prefers_cover_url()
+    test_missing_attention_promote_does_not_write_positive_log()
     print("\n全部通过 ✅")

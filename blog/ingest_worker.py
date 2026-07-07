@@ -37,12 +37,20 @@ def main(job_id):
         detail = ((fetch.stderr or "") + "\n" + (fetch.stdout or "")).strip()[-500:]
         jobs.update_job(job_id, status="failed", message=f"入库失败：{detail}", return_code=fetch.returncode)
         return
+    archive = jobs.find_existing_archive(url)
+    if not archive:
+        detail = ((fetch.stderr or "") + "\n" + (fetch.stdout or "")).strip()[-300:]
+        message = "入库失败：抓取完成但未找到可用归档。"
+        if detail:
+            message = f"{message} {detail}"
+        jobs.update_job(job_id, status="failed", message=message, archive_dir="", return_code=fetch.returncode)
+        return
     refresh = _run(["bash", str(ROOT / "run.sh"), "refresh"])
     if refresh.returncode != 0:
         detail = ((refresh.stderr or "") + "\n" + (refresh.stdout or "")).strip()[-500:]
         jobs.update_job(job_id, status="failed", message=f"刷新失败：{detail}", return_code=refresh.returncode)
         return
-    archive = jobs.find_existing_archive(url)
+    archive = jobs.find_existing_archive(url) or archive
     jobs.update_job(job_id, status="done", message="已加入深度库", archive_dir=archive, return_code=0)
 
 

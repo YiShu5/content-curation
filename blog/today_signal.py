@@ -1133,7 +1133,7 @@ def signal_freshness(payload, now_ts=None, profile=None):
     now_dt = datetime.fromtimestamp(now_ts or time.time())
     expires = _next_delivery_after(generated, profile)
     age_hours = max(0, round((now_dt - generated).total_seconds() / 3600, 1))
-    expired = now_dt.date() > generated.date() or now_dt >= expires
+    expired = now_dt >= expires
     return {
         "status": "expired" if expired else "fresh",
         "is_expired": expired,

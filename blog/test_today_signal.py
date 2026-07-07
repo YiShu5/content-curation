@@ -6,6 +6,7 @@
 import json
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -428,13 +429,47 @@ def test_breaking_card_renders_action():
 def test_signal_freshness_daily_window():
     profile = {"delivery": {"hour": 8, "minute": 30}}
     payload = {"generated_at": "2026-07-07 08:31", "signals": []}
-    fresh = ts.signal_freshness(payload, now_ts=1783371600, profile=profile)
+    fresh = ts.signal_freshness(
+        payload,
+        now_ts=datetime(2026, 7, 7, 9, 0).timestamp(),
+        profile=profile,
+    )
     assert fresh["status"] == "fresh", fresh
     assert fresh["label"] == "新鲜"
-    expired = ts.signal_freshness(payload, now_ts=1783451461, profile=profile)
+    expired = ts.signal_freshness(
+        payload,
+        now_ts=datetime(2026, 7, 8, 8, 31).timestamp(),
+        profile=profile,
+    )
     assert expired["status"] == "expired", expired
     assert expired["is_expired"] is True
     print("✓ 今日判断按每日 8:30 窗口判断 freshness")
+
+
+def test_signal_freshness_stays_fresh_until_next_delivery_time():
+    profile = {"delivery": {"hour": 8, "minute": 30}}
+    payload = {"generated_at": "2026-07-07 08:31", "signals": []}
+
+    next_day_early = ts.signal_freshness(
+        payload,
+        now_ts=datetime(2026, 7, 8, 1, 0).timestamp(),
+        profile=profile,
+    )
+    next_day_before_delivery = ts.signal_freshness(
+        payload,
+        now_ts=datetime(2026, 7, 8, 8, 29).timestamp(),
+        profile=profile,
+    )
+    at_next_delivery = ts.signal_freshness(
+        payload,
+        now_ts=datetime(2026, 7, 8, 8, 30).timestamp(),
+        profile=profile,
+    )
+
+    assert next_day_early["status"] == "fresh", next_day_early
+    assert next_day_before_delivery["status"] == "fresh", next_day_before_delivery
+    assert at_next_delivery["status"] == "expired", at_next_delivery
+    print("✓ 今日判断在次日 8:30 前仍保持 fresh")
 
 
 def test_missing_signal_state():
@@ -532,6 +567,7 @@ if __name__ == "__main__":
     test_attention_card_renders_user_choice()
     test_breaking_card_renders_action()
     test_signal_freshness_daily_window()
+    test_signal_freshness_stays_fresh_until_next_delivery_time()
     test_missing_signal_state()
     test_read_signal_cache_marks_non_dict_json_invalid()
     test_read_signal_cache_marks_malformed_object_fields_invalid()

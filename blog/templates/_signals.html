@@ -219,20 +219,46 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
                 }
             } catch (e) {}
         }
+        function shortIngestMessage(message, fallback) {
+            var text = String(message || fallback || '入库失败');
+            return text.length > 28 ? text.slice(0, 28) + '…' : text;
+        }
+        function renderIngestFailure(b, job, fallback) {
+            var message = (job && job.message) || fallback || '入库失败';
+            b.textContent = '入库失败 · ' + shortIngestMessage(message, '查看原因');
+            b.disabled = false;
+            b.title = message;
+        }
+        function parseIngestResponse(r) {
+            return r.json().catch(function () {
+                return {};
+            }).then(function (job) {
+                job = job || {};
+                if (!r.ok) {
+                    job.status = job.status || (r.status === 404 ? 'not_found' : 'failed');
+                    job.message = job.message || ('请求失败（HTTP ' + r.status + '）');
+                }
+                return job;
+            });
+        }
         function renderIngestButton(b, job) {
+            job = job || {};
             var status = job.status || '';
             b.dataset.jobId = job.job_id || b.dataset.jobId || '';
             if (status === 'queued') b.textContent = '已提交';
             else if (status === 'running') b.textContent = '入库中…';
             else if (status === 'done') { b.textContent = '已加入深度库'; b.disabled = true; }
             else if (status === 'exists') { b.textContent = '已在深度库'; b.disabled = true; }
-            else if (status === 'failed') { b.textContent = '入库失败'; b.disabled = false; b.title = job.message || '入库失败'; }
+            else if (status === 'failed') renderIngestFailure(b, job, '入库失败');
+            else if (status === 'bad_url') renderIngestFailure(b, job, '只支持 YouTube 视频链接');
+            else if (status === 'not_found') renderIngestFailure(b, job, '任务不存在，请重试');
+            else renderIngestFailure(b, job, '状态异常，请重试');
         }
         function pollIngest(b) {
             var jobId = b.dataset.jobId || '';
             if (!jobId) return;
             fetch('/ingest/status?job_id=' + encodeURIComponent(jobId))
-                .then(function (r) { return r.json(); })
+                .then(parseIngestResponse)
                 .then(function (job) {
                     renderIngestButton(b, job);
                     if (job.status === 'queued' || job.status === 'running') {
@@ -264,7 +290,7 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ url: url, title: title })
                 })
-                    .then(function (r) { return r.json(); })
+                    .then(parseIngestResponse)
                     .then(function (job) {
                         renderIngestButton(b, job);
                         if (job.job_id && (job.status === 'queued' || job.status === 'running')) {

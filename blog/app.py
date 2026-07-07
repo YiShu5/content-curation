@@ -499,20 +499,21 @@ def signal_attention():
             updated, changed = today_signal.dismiss_attention_item(cache, item_id)
             kind = "dismiss_attention"
 
-        # 同步写一条正向/选择日志；先不加不作为负反馈，只记录用户明确选择。
-        log = Path(__file__).parent / "data" / "clicks.log"
-        log.parent.mkdir(parents=True, exist_ok=True)
-        rec = {
-            "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "kind": kind,
-            "label": str(body.get("label", ""))[:120],
-            "href": str(body.get("href", ""))[:300],
-            "slot": "attention",
-            "source": str(body.get("source", ""))[:80],
-            "item_id": item_id[:80],
-        }
-        with open(log, "a", encoding="utf-8") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        if changed:
+            # 同步写一条正向/选择日志；先不加不作为负反馈，只记录真实生效的用户选择。
+            log = Path(__file__).parent / "data" / "clicks.log"
+            log.parent.mkdir(parents=True, exist_ok=True)
+            rec = {
+                "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "kind": kind,
+                "label": str(body.get("label", ""))[:120],
+                "href": str(body.get("href", ""))[:300],
+                "slot": "attention",
+                "source": str(body.get("source", ""))[:80],
+                "item_id": item_id[:80],
+            }
+            with open(log, "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         return {
             "status": "ok" if changed else "not_found",
             "signals": len(updated.get("signals") or []),
