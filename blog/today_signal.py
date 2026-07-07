@@ -1165,6 +1165,19 @@ def missing_signal_state(profile=None):
     }
 
 
+def _invalid_signal_state(message="今日判断读取失败，首页其他内容仍可查看。"):
+    state = missing_signal_state()
+    state["freshness"] = {
+        "status": "invalid",
+        "is_expired": True,
+        "age_hours": None,
+        "expires_at": "",
+        "label": "读取失败",
+        "message": message,
+    }
+    return state
+
+
 def read_signal_cache():
     """页面侧：只读完整缓存，永不触发生成（绝不阻塞网页请求）。"""
     if not SIGNAL_CACHE.exists():
@@ -1172,17 +1185,13 @@ def read_signal_cache():
     try:
         payload = json.loads(SIGNAL_CACHE.read_text(encoding="utf-8"))
     except Exception:
-        state = missing_signal_state()
-        state["freshness"] = {
-            "status": "invalid",
-            "is_expired": True,
-            "age_hours": None,
-            "expires_at": "",
-            "label": "读取失败",
-            "message": "今日判断读取失败，首页其他内容仍可查看。",
-        }
-        return state
-    return with_signal_freshness(payload)
+        return _invalid_signal_state()
+    if not isinstance(payload, dict):
+        return _invalid_signal_state("今日判断缓存格式异常，首页其他内容仍可查看。")
+    try:
+        return with_signal_freshness(payload)
+    except (TypeError, ValueError):
+        return _invalid_signal_state("今日判断缓存格式异常，首页其他内容仍可查看。")
 
 
 def read_signals():
