@@ -13,10 +13,13 @@
 <body>
     <header class="site-header">
         <div class="header-inner">
-            <a href="/" class="logo">
-                <span class="logo-icon">降</span>
-                <span class="logo-text">降噪</span>
-            </a>
+            <div class="header-brand">
+                <a href="/" class="logo">
+                    <span class="logo-icon">降</span>
+                    <span class="logo-text">降噪</span>
+                </a>
+                <span class="header-tagline">5 分钟获取优质访谈里的深度洞察</span>
+            </div>
             <form class="header-search" action="/search" method="get" role="search"
                   onsubmit="this.classList.add('is-loading'); var b=this.querySelector('button'); if(b){b.dataset.t=b.textContent; b.textContent='搜索中…';}">
                 <input type="search" name="q" placeholder="语义搜索 · 按意思找内容"
@@ -37,5 +40,39 @@
             <p>YS AI KOL | AI PM</p>
         </div>
     </footer>
+    <script>
+    // 卡片全局交互：卡片可点击，背景介绍可独立展开。
+    (function () {
+        function openCard(card) {
+            var href = card && card.dataset ? card.dataset.href : '';
+            if (!href) return;
+            window.open(href, '_blank', 'noopener');
+        }
+        document.addEventListener('click', function (e) {
+            var expand = e.target.closest && e.target.closest('.card-expand-btn');
+            if (expand) {
+                e.preventDefault();
+                e.stopPropagation();
+                var insight = expand.closest('.card-insight');
+                if (!insight) return;
+                var expanded = insight.classList.toggle('expanded');
+                expand.textContent = expanded ? '收起' : '展开';
+                expand.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+                return;
+            }
+            var card = e.target.closest && e.target.closest('.card[data-href]');
+            if (!card) return;
+            if (e.target.closest('a, button, input, select, textarea, summary')) return;
+            openCard(card);
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            var card = e.target.closest && e.target.closest('.card[data-href]');
+            if (!card || e.target.closest('a, button, input, select, textarea, summary')) return;
+            e.preventDefault();
+            openCard(card);
+        });
+    })();
+    </script>
 </body>
 </html>

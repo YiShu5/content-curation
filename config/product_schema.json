@@ -1,0 +1,18 @@
+{
+  "topics": [
+    "AI 前沿",
+    "AI 编程",
+    "AI 产品",
+    "AI 创业",
+    "AI 商业",
+    "投资",
+    "个人效率",
+    "其他"
+  ],
+  "unknown_topic": "其他",
+  "score_dimensions": [
+    { "key": "insight", "label": "洞察原创", "max": 50 },
+    { "key": "source", "label": "信源质量", "max": 25 },
+    { "key": "storytelling", "label": "故事可读", "max": 25 }
+  ]
+}

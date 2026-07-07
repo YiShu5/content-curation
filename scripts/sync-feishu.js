@@ -8,6 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import * as dotenv from 'dotenv';
+import { topics, normalizeTopic } from './product-schema.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.join(__dirname, '..');
@@ -174,7 +175,7 @@ function buildBitableRecord(metadata, fileToken) {
   };
 
   if (metadata.topic) {
-    record['话题'] = metadata.topic;
+    record['话题'] = normalizeTopic(metadata.topic);
   }
 
   // 评分字段
@@ -267,7 +268,7 @@ async function ensureScoreFields(token) {
 }
 
 // ── 确保"话题"单选字段存在 ────────────────────────────────────────────────
-const TOPIC_OPTIONS = ['AI 编程', 'AI 产品', 'AI 创业', 'AI 商业', '投资', '个人效率', '其他'];
+const TOPIC_OPTIONS = topics();
 
 async function ensureTopicField(token) {
   const url = `${FEISHU_BASE}/open-apis/bitable/v1/apps/${APP_TOKEN}/tables/${TABLE_ID}/fields`;

@@ -52,6 +52,7 @@ if _env_path.exists():
         pass  # dotenv 未安装时跳过，依赖系统环境变量
 
 from config import Config
+from product_schema import TOPICS
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -254,15 +255,16 @@ def load_archive_records():
 
 
 # ── 路由 ──────────────────────────────────────────────────────────────────
-TOPICS = ['AI 前沿', 'AI 产品', 'AI 创业', 'AI 商业', 'AI 编程', '投资', '个人效率', '其他']
-
-
 @app.route("/")
 def index():
     records = load_archive_records()
-    # 只保留实际有内容的话题（带数量）
-    used_topics = [t for t in TOPICS if any(r.get("topic") == t for r in records)]
-    topic_counts = {t: sum(1 for r in records if r.get("topic") == t) for t in used_topics}
+    # 只保留实际有内容的话题（带数量），按出现频次优先展示，方便顶部筛选栏先露出高频标签。
+    raw_topic_counts = {t: sum(1 for r in records if r.get("topic") == t) for t in TOPICS}
+    used_topics = sorted(
+        [t for t in TOPICS if raw_topic_counts.get(t, 0) > 0],
+        key=lambda t: (-raw_topic_counts.get(t, 0), TOPICS.index(t))
+    )
+    topic_counts = {t: raw_topic_counts[t] for t in used_topics}
     # 质量评级（按固定顺序，只保留出现过的，带数量）
     _verdict_order = ["必读", "强烈推荐", "推荐", "一般", "可跳过"]
     _vc = {}
@@ -271,19 +273,29 @@ def index():
         if v:
             _vc[v] = _vc.get(v, 0) + 1
     verdicts = [{"name": v, "count": _vc[v]} for v in _verdict_order if v in _vc]
-    # 今日必读（页面只读缓存，永不阻塞；缓存由 `run.sh signals` 后台生成）
+    # 今日判断（页面只读缓存，永不阻塞；缓存由 `run.sh signals` 后台生成）
     signals = []
+    breaking = None
+    attention = []
+    signal_meta = {}
     signal_ran = False  # 区分「已生成但降噪后为 0」与「从未生成」
     try:
         import today_signal
-        cached = today_signal.read_signals()
+        cached = today_signal.read_signal_cache()
         signal_ran = cached is not None
-        signals = cached or []
+        signal_meta = today_signal.enrich_cached_link_quotes(
+            cached if cached is not None else today_signal.missing_signal_state(),
+            records,
+        )
+        signals = signal_meta.get("signals") or []
+        breaking = signal_meta.get("breaking")
+        attention = signal_meta.get("attention") or []
     except Exception as e:
-        print(f"[WARN] 今日必读读取失败（不影响页面）: {e}")
+        print(f"[WARN] 今日判断读取失败（不影响页面）: {e}")
     return render_template("index.html", records=records, topics=used_topics,
                            topic_counts=topic_counts, verdicts=verdicts,
-                           signals=signals, signal_ran=signal_ran)
+                           breaking=breaking, signals=signals, attention=attention,
+                           signal_meta=signal_meta, signal_ran=signal_ran)
 
 
 # 本地 archive 索引缓存：
@@ -446,21 +458,70 @@ def detail(record_id):
     return render_template("detail.html", article=article, related=related)
 
 
-@app.route("/ingest")
+@app.route("/ingest", methods=["GET", "POST"])
 def ingest():
-    """必读驱动入库：抓取指定 YouTube 视频 → 改写 → 重建向量索引（后台跑，立即返回）。"""
-    url = request.args.get("url", "")
-    if not _re.match(r'^https://(www\.)?(youtube\.com/watch\?v=|youtu\.be/)[\w-]{11}', url):
-        return {"status": "bad_url"}, 400
-    import subprocess
-    import shlex
-    root = Path(__file__).parent.parent
-    cmd = (f'cd {shlex.quote(str(root))} && '
-           f'.venv/bin/python scripts/fetch.py --url {shlex.quote(url)} && '
-           f'bash run.sh refresh')
-    subprocess.Popen(["bash", "-lc", cmd],
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return {"status": "started"}
+    """加入深度库：创建本地 job，后台抓取 YouTube → 改写 → 重建索引。"""
+    import ingest_jobs
+    body = request.get_json(silent=True) or {}
+    url = body.get("url") or request.args.get("url", "")
+    title = body.get("title") or request.args.get("title", "")
+    job = ingest_jobs.start_job(url, title=title)
+    if job.get("status") == "bad_url":
+        return job, 400
+    return job
+
+
+@app.route("/ingest/status")
+def ingest_status():
+    import ingest_jobs
+    job_id = request.args.get("job_id", "")
+    job = ingest_jobs.get_job(job_id)
+    if not job:
+        return {"status": "not_found"}, 404
+    return job
+
+
+@app.route("/signal/attention", methods=["POST"])
+def signal_attention():
+    """处理“热议浮现”提示：用户可手动加入首页，或先不加。"""
+    body = request.get_json(silent=True) or {}
+    item_id = str(body.get("item_id") or "").strip()
+    action = str(body.get("action") or "").strip()
+    if not item_id or action not in {"promote", "dismiss"}:
+        return {"status": "bad_request"}, 400
+    try:
+        import today_signal
+        cache = today_signal.read_signal_cache() or {}
+        if action == "promote":
+            updated, changed = today_signal.promote_attention_item(cache, item_id)
+            kind = "promote_attention"
+        else:
+            updated, changed = today_signal.dismiss_attention_item(cache, item_id)
+            kind = "dismiss_attention"
+
+        if changed:
+            # 同步写一条正向/选择日志；先不加不作为负反馈，只记录真实生效的用户选择。
+            log = Path(__file__).parent / "data" / "clicks.log"
+            log.parent.mkdir(parents=True, exist_ok=True)
+            rec = {
+                "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "kind": kind,
+                "label": str(body.get("label", ""))[:120],
+                "href": str(body.get("href", ""))[:300],
+                "slot": "attention",
+                "source": str(body.get("source", ""))[:80],
+                "item_id": item_id[:80],
+            }
+            with open(log, "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        return {
+            "status": "ok" if changed else "not_found",
+            "signals": len(updated.get("signals") or []),
+            "attention": len(updated.get("attention") or []),
+        }
+    except Exception as e:
+        print(f"[WARN] 热议浮现处理失败: {e}")
+        return {"status": "error"}, 500
 
 
 @app.route("/track", methods=["POST"])
@@ -474,6 +535,9 @@ def track():
             "kind": str(data.get("kind", ""))[:20],
             "label": str(data.get("label", ""))[:120],
             "href": str(data.get("href", ""))[:300],
+            "slot": str(data.get("slot", ""))[:40],
+            "source": str(data.get("source", ""))[:80],
+            "item_id": str(data.get("item_id", ""))[:80],
         }
         log = Path(__file__).parent / "data" / "clicks.log"
         log.parent.mkdir(parents=True, exist_ok=True)
