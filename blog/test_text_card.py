@@ -39,7 +39,7 @@ def test_render_text_card_success_and_failure():
     with tempfile.TemporaryDirectory() as td:
         out = Path(td) / "card.png"
 
-        def fake_chrome_ok(html_path, out_png, chrome_path=None, timeout=None):
+        def fake_chrome_ok(html_path, out_png, chrome_path=None, timeout=None, size=None):
             Path(out_png).write_bytes(b"PNG")
             return SimpleNamespace(returncode=0, stderr="")
 
@@ -51,7 +51,7 @@ def test_render_text_card_success_and_failure():
             assert not out.with_suffix(".html").exists(), "成功后应清理临时 html"
 
             # 失败：rc 非 0 → 半成品被清、html 留存排查
-            def fake_chrome_fail(html_path, out_png, chrome_path=None, timeout=None):
+            def fake_chrome_fail(html_path, out_png, chrome_path=None, timeout=None, size=None):
                 Path(out_png).write_bytes(b"broken")
                 return SimpleNamespace(returncode=1, stderr="chrome boom")
 
@@ -153,6 +153,113 @@ def test_detail_page_renders_card_button():
     print("✓ 详情页渲染金句卡按钮与弹层")
 
 
+_PAYLOAD = {
+    "generated_at": "2099-01-01 08:30",
+    "breaking": {"title": "大新闻<b>", "summary": "总结&", "action": "本周应该测试"},
+    "signals": [
+        {"slot_label": "C 端增长", "title": "标题一", "summary": "总结一", "why": "理由一"},
+        {"slot_label": "行业趋势", "title": "标题二<i>", "summary": "总结二", "why": ""},
+    ],
+}
+
+
+def test_daily_card_html_content_and_escape():
+    h = text_card.daily_card_html(_PAYLOAD)
+    assert "2099-01-01" in h
+    assert "大新闻&lt;b&gt;" in h and "总结&amp;" in h
+    assert "本周应该测试" in h            # breaking 行动章
+    assert "C 端增长" in h and "标题一" in h and "理由一" in h
+    assert "标题二&lt;i&gt;" in h
+    assert h.count("为什么值得看") == 1   # 空 why 不渲染该块
+    # 无 breaking / 无信号的降级
+    h2 = text_card.daily_card_html({"generated_at": "2099-01-02", "signals": []})
+    assert "顶级大新闻" not in h2 and "今日无入选判断" in h2
+    print("✓ daily_card_html 内容/转义/空分支")
+
+
+def test_render_daily_card_uses_wide_size():
+    sizes = []
+
+    def fake_chrome(html_path, out_png, chrome_path=None, timeout=None, size=None):
+        sizes.append(size)
+        Path(out_png).write_bytes(b"PNG")
+        return SimpleNamespace(returncode=0, stderr="")
+
+    old = text_card.run_chrome_screenshot
+    try:
+        text_card.run_chrome_screenshot = fake_chrome
+        with tempfile.TemporaryDirectory() as td:
+            ok, _ = text_card.render_daily_card(_PAYLOAD, Path(td) / "d.png")
+            assert ok and sizes == [(1920, 1080)]
+    finally:
+        text_card.run_chrome_screenshot = old
+    print("✓ render_daily_card 走 1920×1080")
+
+
+def test_signal_card_route():
+    import today_signal
+    old_read = today_signal.read_signal_cache
+    old_render = text_card.render_daily_card
+    calls = []
+    try:
+        today_signal.read_signal_cache = lambda: dict(_PAYLOAD)
+
+        def fake_render(payload, out_png, date_str=""):
+            calls.append(date_str)
+            Path(out_png).parent.mkdir(parents=True, exist_ok=True)
+            Path(out_png).write_bytes(b"PNG")
+            return True, ""
+
+        text_card.render_daily_card = fake_render
+        client = app.test_client()
+        assert client.get("/signal-card.png").status_code == 200
+        assert calls == ["2099-01-01"]
+        assert client.get("/signal-card.png").status_code == 200
+        assert len(calls) == 1, "同一 generated_at 命中缓存不重渲染"
+
+        # promote 改了 signals（generated_at 不变）→ 缓存键变化，必须重渲染
+        promoted = dict(_PAYLOAD)
+        promoted["signals"] = _PAYLOAD["signals"] + [
+            {"slot_label": "热议", "title": "手动加入", "summary": "s", "item_id": "manual1"}]
+        today_signal.read_signal_cache = lambda: promoted
+        assert client.get("/signal-card.png").status_code == 200
+        assert len(calls) == 2, "promote 后不得复用旧卡"
+
+        # 空缓存 → 404；渲染失败 → 503
+        today_signal.read_signal_cache = lambda: None
+        assert client.get("/signal-card.png").status_code == 404
+        today_signal.read_signal_cache = lambda: {"generated_at": "2099-09-09",
+                                                  "signals": [{"title": "x"}]}
+        text_card.render_daily_card = lambda *a, **kw: (False, "no chrome")
+        assert client.get("/signal-card.png").status_code == 503
+    finally:
+        today_signal.read_signal_cache = old_read
+        text_card.render_daily_card = old_render
+        for payload in (dict(_PAYLOAD), promoted):
+            key = app_module._daily_card_key(payload)
+            p = Path(__file__).parent / "data" / "quote_cards" / f"dailycard-{key}.png"
+            p.unlink(missing_ok=True)
+    print("✓ /signal-card.png 路由：渲染/缓存/promote失效/404/503")
+
+
+def test_signals_template_renders_share_button():
+    from flask import render_template
+    with app.test_request_context("/"):
+        html = render_template("_signals.html", breaking=_PAYLOAD["breaking"],
+                               signals=_PAYLOAD["signals"], attention=[],
+                               signal_meta={"window_hours": 48,
+                                            "generated_at": "2099-01-01 08:30"})
+    assert 'id="signalsShareBtn"' in html
+    assert 'id="sc-copy-data"' in html and "标题一" in html
+    assert 'id="sc-modal"' in html
+    # 无信号无 breaking：按钮与弹层都不渲染
+    with app.test_request_context("/"):
+        html2 = render_template("_signals.html", breaking=None, signals=[],
+                                attention=[], signal_meta={"window_hours": 48})
+    assert 'id="signalsShareBtn"' not in html2
+    print("✓ 信号面板分享按钮渲染与空态")
+
+
 if __name__ == "__main__":
     test_text_card_html_escapes_and_footer()
     test_text_card_html_font_size_and_optional_fields()
@@ -160,4 +267,8 @@ if __name__ == "__main__":
     test_quote_card_route_renders_and_caches()
     test_quote_card_route_render_failure_503()
     test_detail_page_renders_card_button()
+    test_daily_card_html_content_and_escape()
+    test_render_daily_card_uses_wide_size()
+    test_signal_card_route()
+    test_signals_template_renders_share_button()
     print("\n全部通过 ✅")

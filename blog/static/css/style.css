@@ -861,6 +861,20 @@ a { color: inherit; text-decoration: none; }
 }
 .qc-btn:hover { background: rgba(184,95,66,.1); }
 .qc-status { color: var(--text-secondary); font-size: 13px; padding: 24px 0; text-align: center; }
+.qc-panel-wide { max-width: 960px; }
+
+.signals-share-btn {
+    border: 1px solid rgba(184,95,66,.35);
+    background: transparent;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 12px;
+    border-radius: 14px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.signals-share-btn:hover { background: rgba(184,95,66,.1); }
 
 .d-quote-item::before {
     content: "";
