@@ -35,6 +35,8 @@ load_dotenv(CONFIG_DIR / ".env")
 
 BIBIGPT_TOKEN = os.getenv("BIBIGPT_API_TOKEN", "")
 ARCHIVE_DIR = PROJECT_ROOT / os.getenv("ARCHIVE_DIR", "./archive")
+# whisper 本地/Groq 云端共用的音频与转录缓存（按视频 id 免重复下载/转录）
+WHISPER_CACHE_DIR = Path.home() / ".cache" / "whisper-cpp" / "jobs"
 
 # 转录失败标记：写端（process_item）与读端（read_existing_transcript）共用。
 # ⚠️ rewrite.js 里有一份 JS 拷贝按同样前缀识别失败转录，改动需同步。
@@ -383,6 +385,78 @@ def get_transcript_ytapi(video_id: str) -> str:
         raise RuntimeError(f"youtube-transcript-api 也失败了: {e}")
 
 
+def _is_original_audio(p: Path) -> bool:
+    """原始下载音源判定：排除派生产物（whisper 的 wav/json、Groq 的 .groq.mp3）。
+    直链音源本身可能就是 .mp3，不能按扩展名一刀切排除。"""
+    return p.suffix not in (".wav", ".json") and not p.name.endswith(".groq.mp3")
+
+
+def _download_audio(url: str, key: str, cdir: Path) -> Path:
+    """下载音频到缓存目录（whisper 本地/Groq 云端共用；已下过不重下）。
+    不再强制 android player_client——全局 yt-dlp 配置已有 js-runtimes 药方。"""
+    dl = next((p for p in sorted(cdir.glob(f"{key}.*")) if _is_original_audio(p)), None)
+    if dl:
+        return dl
+    ydl = str(PROJECT_ROOT / ".venv" / "bin" / "yt-dlp")
+    if not Path(ydl).exists():
+        ydl = "yt-dlp"
+    subprocess.run([ydl, "-f", "ba/b", "-o", str(cdir / f"{key}.%(ext)s"), url],
+                   capture_output=True, text=True, timeout=900)
+    dl = next((p for p in sorted(cdir.glob(f"{key}.*")) if _is_original_audio(p)), None)
+    if not dl:
+        raise RuntimeError("音频下载失败")
+    return dl
+
+
+def _segments_to_lines(segments) -> list[str]:
+    """把带 start 秒数的 segments 拼成与其他通道一致的 [HH:MM:SS] 行。"""
+    lines = []
+    for seg in segments or []:
+        try:
+            sec = int(float(seg.get("start") or 0))
+        except (TypeError, ValueError):
+            sec = 0
+        txt = (seg.get("text") or "").strip()
+        if txt:
+            lines.append(f"[{sec // 3600:02d}:{sec % 3600 // 60:02d}:{sec % 60:02d}] {txt}")
+    return lines
+
+
+def get_transcript_groq(url: str, video_id: str = "") -> str:
+    """Groq Whisper 云端转录（whisper-large-v3-turbo，约 $0.04/小时音频）。
+    音频下载复用本地缓存目录；转 16kHz 单声道 32kbps mp3 控制上传体积
+    （2 小时 ≈ 28MB）。GROQ_API_KEY 缺失直接失败，流水线跳下一通道。"""
+    api_key = os.getenv("GROQ_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY 未配置")
+    cdir = WHISPER_CACHE_DIR
+    cdir.mkdir(parents=True, exist_ok=True)
+    key = video_id or hashlib.sha1(url.encode()).hexdigest()[:16]
+    # 独立命名：与「恰好是 mp3 的原始直链音源」区分，防止误传原始大文件
+    mp3 = cdir / f"{key}.groq.mp3"
+    if not mp3.exists():
+        dl = _download_audio(url, key, cdir)
+        subprocess.run(["ffmpeg", "-y", "-i", str(dl), "-ar", "16000", "-ac", "1",
+                        "-b:a", "32k", str(mp3)], capture_output=True, text=True)
+        if not mp3.exists():
+            raise RuntimeError("ffmpeg 转 mp3 失败")
+    with open(mp3, "rb") as f:
+        resp = requests.post(  # 海外 API，走系统代理（默认 session）
+            "https://api.groq.com/openai/v1/audio/transcriptions",
+            headers={"Authorization": f"Bearer {api_key}"},
+            files={"file": (mp3.name, f, "audio/mpeg")},
+            data={"model": "whisper-large-v3-turbo",
+                  "response_format": "verbose_json"},
+            timeout=600,
+        )
+    if resp.status_code != 200:
+        raise RuntimeError(f"Groq 转录失败 HTTP {resp.status_code}: {resp.text[:200]}")
+    lines = _segments_to_lines(resp.json().get("segments"))
+    if not lines:
+        raise RuntimeError("Groq 返回空转录")
+    return "\n".join(lines)
+
+
 def get_transcript_whisper(url: str, video_id: str = "", lang: str = "auto") -> str:
     """本地 whisper.cpp 转录：任意平台、零 API 成本、中文质量好。
     按 video_id 缓存 wav + json 到 ~/.cache/whisper-cpp/jobs，避免重复转录/下载。
@@ -394,7 +468,7 @@ def get_transcript_whisper(url: str, video_id: str = "", lang: str = "auto") -> 
     if not shutil.which("whisper-cli"):
         raise RuntimeError("whisper-cli 未安装(brew install whisper-cpp)")
 
-    cdir = Path.home() / ".cache" / "whisper-cpp" / "jobs"
+    cdir = WHISPER_CACHE_DIR
     cdir.mkdir(parents=True, exist_ok=True)
     key = video_id or hashlib.sha1(url.encode()).hexdigest()[:16]
     jf = cdir / f"{key}.json"
@@ -402,17 +476,7 @@ def get_transcript_whisper(url: str, video_id: str = "", lang: str = "auto") -> 
     if not jf.exists():  # 没缓存才下载+转录
         wav = cdir / f"{key}.wav"
         if not wav.exists():
-            ydl = str(PROJECT_ROOT / ".venv" / "bin" / "yt-dlp")
-            if not Path(ydl).exists():
-                ydl = "yt-dlp"
-            subprocess.run([ydl, "-f", "ba/b", "--extractor-args",
-                            "youtube:player_client=android",
-                            "-o", str(cdir / f"{key}.%(ext)s"), url],
-                           capture_output=True, text=True, timeout=900)
-            dl = next((p for p in sorted(cdir.glob(f"{key}.*"))
-                       if p.suffix not in (".wav", ".json")), None)
-            if not dl:
-                raise RuntimeError("音频下载失败")
+            dl = _download_audio(url, key, cdir)
             subprocess.run(["ffmpeg", "-y", "-i", str(dl), "-ar", "16000", "-ac", "1",
                             str(wav)], capture_output=True, text=True)
             if not wav.exists():
@@ -616,26 +680,38 @@ def process_item(item: VideoItem) -> bool | None:
                 except Exception as e_ytapi:
                     print(f"  [WARN] 免费方案全失败: {e_ytapi}")
 
-        # 免费方案·本地 whisper.cpp（任意平台、零 API 成本、中文质量好）
+        # 云端优先原则（2026-07-11 用户拍板）：免费字幕 API → Groq 云端 whisper
+        # （几分钱）→ BibiGPT 全托管付费 → whisper 本地（最最兜底）
         if not transcript:
             try:
-                print("  [免费·本地] whisper.cpp 转录中（中文，首次约 10-15 分钟）...")
-                transcript = get_transcript_whisper(item.url, item.id)
-                transcript_source = "whisper-local"
-                print(f"  [OK] 本地 whisper 转录成功 ({len(transcript)} 字符)")
-            except Exception as e_w:
-                print(f"  [WARN] 本地 whisper 失败: {e_w}")
+                print("  [云端] Groq whisper 转录中（约 $0.04/小时音频）...")
+                transcript = get_transcript_groq(item.url, item.id)
+                transcript_source = "groq-whisper"
+                print(f"  [OK] Groq 转录成功 ({len(transcript)} 字符)")
+            except Exception as e_groq:
+                print(f"  [WARN] Groq 失败: {e_groq}")
 
-        # 仍拿不到 → BibiGPT 付费兜底
+        # 全托管付费云（他们服务器抓取，本地下载被反爬拦时的接棒者）
         if not transcript:
             try:
-                print("  [BibiGPT] 获取转录中（付费兜底）...")
+                print("  [BibiGPT] 获取转录中（付费）...")
                 transcript = get_transcript_bibigpt(item.url)
                 transcript_source = "bibigpt"
                 print(f"  [OK] BibiGPT 转录成功 ({len(transcript)} 字符)")
             except Exception as e_bibi:
                 transcript_error = str(e_bibi)
                 print(f"  [WARN] BibiGPT 失败: {e_bibi}")
+
+        # 本地 whisper.cpp 最最兜底（零 API 成本但慢，首次约 10-15 分钟）
+        if not transcript:
+            try:
+                print("  [本地兜底] whisper.cpp 转录中...")
+                transcript = get_transcript_whisper(item.url, item.id)
+                transcript_source = "whisper-local"
+                print(f"  [OK] 本地 whisper 转录成功 ({len(transcript)} 字符)")
+            except Exception as e_w:
+                transcript_error = transcript_error or str(e_w)
+                print(f"  [WARN] 本地 whisper 失败: {e_w}")
 
         # 3. 写 transcript.md
         transcript_path = archive_dir / "transcript.md"

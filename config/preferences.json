@@ -74,6 +74,7 @@
       "open_breaking": 1.5,
       "open_local": 1.5,
       "open_origin": 1.5,
+      "share_card": 1.5,
       "promote_attention": 2.0,
       "deep_library": 3.0
     }

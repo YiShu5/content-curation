@@ -128,6 +128,7 @@
 
             <!-- 金句精选（最多 3 条）；id 供今日信号的站内深链锚点定位 -->
             {% if article.key_quotes %}
+            {% set byline = article | attribution %}
             <section id="key-quotes">
                 <h2 class="d-section-title">🗣 金句精选</h2>
                 <div class="d-quotes-list">
@@ -136,10 +137,32 @@
                     <div class="d-quote-item"{% if qa %} id="{{ qa }}"{% endif %}>
                         <span class="d-quote-mark">"</span>
                         <p class="d-quote-text">{{ q | quote_display }}</p>
+                        <button class="d-quote-card-btn" type="button"
+                                data-card-url="/article/{{ article.id | urlencode }}/quote-card.png?i={{ loop.index0 }}"
+                                data-i="{{ loop.index0 }}"
+                                data-quote="{{ q | quote_display }}"
+                                data-byline="{{ byline }}"
+                                data-title="{{ article.title }}"
+                                data-platform="{{ article.platform }}"
+                                data-rid="{{ article.id }}">金句卡</button>
                     </div>
                     {% endfor %}
                 </div>
             </section>
+
+            <!-- 金句卡弹层：预览 + 下载 PNG / 复制文字版（发给同事） -->
+            <div class="qc-modal" id="qc-modal" hidden>
+                <div class="qc-backdrop"></div>
+                <div class="qc-panel">
+                    <div class="qc-status" id="qc-status">生成中…</div>
+                    <img id="qc-img" alt="金句卡" hidden>
+                    <div class="qc-actions">
+                        <a id="qc-download" class="qc-btn" download>下载 PNG</a>
+                        <button id="qc-copy" class="qc-btn" type="button">复制文字版</button>
+                        <button id="qc-close" class="qc-btn" type="button">关闭</button>
+                    </div>
+                </div>
+            </div>
             {% endif %}
 
             <!-- 深度摘要 -->
@@ -187,6 +210,59 @@
 </div>
 
 <script>
+// 金句卡：按钮 → 弹层预览（后端按 hash 缓存渲染）+ 下载 PNG / 复制文字版
+(function () {
+    const modal = document.getElementById('qc-modal');
+    if (!modal) return;
+    const img = document.getElementById('qc-img');
+    const dl = document.getElementById('qc-download');
+    const copyBtn = document.getElementById('qc-copy');
+    const status = document.getElementById('qc-status');
+    let copyText = '';
+    document.querySelectorAll('.d-quote-card-btn').forEach(function (b) {
+        b.addEventListener('click', function () {
+            copyText = '「' + b.dataset.quote + '」\n— ' + b.dataset.byline +
+                '\n《' + b.dataset.title + '》 · ' + b.dataset.platform;
+            status.textContent = '生成中…';
+            status.hidden = false;
+            img.hidden = true;
+            img.removeAttribute('src');
+            modal.hidden = false;
+            const url = b.dataset.cardUrl;
+            img.onload = function () { status.hidden = true; img.hidden = false; };
+            img.onerror = function () { status.textContent = '生成失败，稍后重试'; };
+            img.src = url;
+            dl.href = url;
+            dl.download = 'quote-' + b.dataset.rid + '-' + b.dataset.i + '.png';
+            try {
+                navigator.sendBeacon('/track', new Blob([JSON.stringify({
+                    kind: 'share_card', label: b.dataset.quote.slice(0, 100),
+                    href: url, slot: '', source: 'detail', item_id: b.dataset.rid
+                })], { type: 'application/json' }));
+            } catch (e) { /* 埋点失败不阻塞 */ }
+        });
+    });
+    copyBtn.addEventListener('click', function () {
+        function done() {
+            copyBtn.textContent = '已复制 ✓';
+            setTimeout(function () { copyBtn.textContent = '复制文字版'; }, 1500);
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(copyText).then(done);
+        } else {
+            // 非 secure context（如同事经 http://内网IP 访问）没有 clipboard API
+            var ta = document.createElement('textarea');
+            ta.value = copyText;
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); done(); } catch (e) { /* 忽略 */ }
+            ta.remove();
+        }
+    });
+    document.getElementById('qc-close').addEventListener('click', function () { modal.hidden = true; });
+    modal.querySelector('.qc-backdrop').addEventListener('click', function () { modal.hidden = true; });
+})();
+
 // 金句锚点降级：信号金句不在展示的前 3 条里（或已被重排）时，诚实滚到金句区
 (function () {
     if (/^#q-/.test(location.hash) && !document.getElementById(location.hash.slice(1))) {

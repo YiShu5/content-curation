@@ -85,8 +85,23 @@ app = Flask(__name__)
 app.config.from_object(Config)
 app.jinja_env.filters['markdown'] = _render_markdown
 app.jinja_env.filters['strip_md'] = _strip_markdown
+def _article_attribution(article):
+    """金句卡署名（guest_info→guests→uploader 降级链），供模板拼「复制文字版」。"""
+    try:
+        import text_card
+        name, role = text_card.resolve_attribution({
+            "guest_info": article.get("guest_info"),
+            "guests": article.get("guests"),
+            "uploader": article.get("creator"),
+        })
+        return f"{name} · {role}" if role else name
+    except Exception:
+        return str(article.get("creator") or "")
+
+
 app.jinja_env.filters['quote_anchor'] = _quote_anchor
 app.jinja_env.filters['quote_display'] = _quote_display
+app.jinja_env.filters['attribution'] = _article_attribution
 
 
 # ── 本地 archive 作为真相源（不依赖飞书）─────────────────────────────────────
@@ -362,6 +377,45 @@ def cover_local(name):
     if not covers:
         abort(404)
     return send_file(covers[0], max_age=86400)
+
+
+@app.route("/article/<record_id>/quote-card.png")
+def quote_card(record_id):
+    """文字金句卡（无视频帧）：按（记录, 序号, 金句文本 hash）缓存，
+    未命中时 headless Chrome 同步渲染（1-2 秒，单人使用可接受）。
+    金句 hash 进缓存键——select-quotes 重排后不会出旧卡。"""
+    article = next((r for r in load_archive_records() if r["id"] == record_id), None)
+    if not article:
+        abort(404)
+    quotes = article.get("key_quotes") or []
+    try:
+        i = int(request.args.get("i", "0"))
+    except ValueError:
+        abort(404)
+    if not (0 <= i < len(quotes)):
+        abort(404)
+
+    import text_card
+    text = text_card.normalize_quote(quotes[i])
+    if not text:
+        abort(404)
+    h = hashlib.sha1(text.encode("utf-8")).hexdigest()[:8]
+    out = Path(__file__).parent / "data" / "quote_cards" / f"textcard-{record_id}-{i}-{h}.png"
+    if not out.exists():
+        name, role = text_card.resolve_attribution({
+            "guest_info": article.get("guest_info"),
+            "guests": article.get("guests"),
+            "uploader": article.get("creator"),
+        })
+        ok, err_msg = text_card.render_text_card(
+            text, name, role, article.get("title", ""),
+            article.get("platform", ""), out)
+        if not ok:
+            print(f"[WARN] 金句卡渲染失败: {err_msg}")
+            abort(503)
+    # max_age=0：金句 hash 只在服务端文件名里，URL 不变——浏览器缓存会在
+    # select-quotes 重排后拆穿「不出旧卡」的承诺，禁用浏览器缓存（服务端有文件缓存）
+    return send_file(out, max_age=0)
 
 
 # ── 启动 ──────────────────────────────────────────────────────────────────

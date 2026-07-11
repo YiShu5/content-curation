@@ -277,6 +277,68 @@ def test_cleanup_keeper_prefers_feishu_synced():
     print("✓ cleanup 保留判定优先已同步飞书的份")
 
 
+def test_groq_transcript_channel():
+    """Groq 云端转录：无 key 快速失败；有 key 时打桩 requests 验证时间戳行拼装；
+    mp3 缓存命中时不触下载。绝不打真实 API。"""
+    import os
+    old_key = os.environ.pop("GROQ_API_KEY", None)
+    old_cache = fetch.WHISPER_CACHE_DIR
+    old_requests = fetch.requests
+    try:
+        # 无 key → 直接失败（流水线跳下一通道）
+        try:
+            fetch.get_transcript_groq("https://www.youtube.com/watch?v=vidabc10001", "vidabc10001")
+            assert False, "无 key 应当抛出"
+        except RuntimeError as e:
+            assert "GROQ_API_KEY" in str(e)
+
+        with tempfile.TemporaryDirectory() as td:
+            os.environ["GROQ_API_KEY"] = "gsk_test"
+            fetch.WHISPER_CACHE_DIR = Path(td)
+            (Path(td) / "vidabc10001.groq.mp3").write_bytes(b"fake-mp3")  # 转码缓存命中，跳过下载/ffmpeg
+
+            posted = {}
+
+            def fake_post(url, headers=None, files=None, data=None, timeout=None):
+                posted["url"] = url
+                posted["model"] = (data or {}).get("model")
+                return SimpleNamespace(status_code=200, json=lambda: {
+                    "segments": [
+                        {"start": 65.4, "text": " 第一段 "},
+                        {"start": 3725, "text": "第二段"},
+                        {"start": None, "text": ""},  # 空文本跳过
+                    ]})
+
+            fetch.requests = SimpleNamespace(post=fake_post)
+            out = fetch.get_transcript_groq("https://www.youtube.com/watch?v=vidabc10001", "vidabc10001")
+            assert "api.groq.com" in posted["url"]
+            assert posted["model"] == "whisper-large-v3-turbo"
+            assert out.splitlines() == ["[00:01:05] 第一段", "[01:02:05] 第二段"], out
+
+            # API 报错 → RuntimeError 带状态码
+            fetch.requests = SimpleNamespace(post=lambda *a, **kw: SimpleNamespace(
+                status_code=413, json=lambda: {}, text="file too large"))
+            try:
+                fetch.get_transcript_groq("https://www.youtube.com/watch?v=vidabc10001", "vidabc10001")
+                assert False, "HTTP 413 应当抛出"
+            except RuntimeError as e:
+                assert "413" in str(e)
+    finally:
+        fetch.requests = old_requests
+        fetch.WHISPER_CACHE_DIR = old_cache
+        if old_key is None:
+            os.environ.pop("GROQ_API_KEY", None)
+        else:
+            os.environ["GROQ_API_KEY"] = old_key
+    # 原始音源判定：直链 .mp3 是合法音源，派生产物（wav/json/groq.mp3）不是
+    assert fetch._is_original_audio(Path("x.mp3"))
+    assert fetch._is_original_audio(Path("x.m4a"))
+    assert not fetch._is_original_audio(Path("x.groq.mp3"))
+    assert not fetch._is_original_audio(Path("x.wav"))
+    assert not fetch._is_original_audio(Path("x.json"))
+    print("✓ Groq 转录通道：无 key 跳过 / 时间戳行拼装 / API 错误处理 / mp3 直链音源不误伤")
+
+
 def test_cleanup_plan_and_dry_run():
     rid_a, rid_b = "vidaaa00001", "vidbbb00002"
     with tempfile.TemporaryDirectory() as td:
@@ -359,6 +421,7 @@ if __name__ == "__main__":
     test_process_item_reused_stub_survives_rewrite_failure()
     test_process_item_new_dir_still_cleaned_on_no_transcript()
     test_process_item_reuse_preserves_duration_and_real_title()
+    test_groq_transcript_channel()
     test_cleanup_keeper_prefers_feishu_synced()
     test_cleanup_plan_and_dry_run()
     test_cleanup_apply_moves_to_quarantine_without_overwrite()
