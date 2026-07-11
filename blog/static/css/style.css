@@ -812,6 +812,12 @@ a { color: inherit; text-decoration: none; }
 
 .d-quote-item:last-child { border-bottom: none; }
 
+/* 锚点定位：留出 sticky header 高度，避免金句上半截被遮挡 */
+.d-quote-item, #key-quotes { scroll-margin-top: calc(var(--header-height, 56px) + 12px); }
+
+.d-quote-item:target { background: rgba(184,95,66,.08); }
+.d-quote-item:target::before { background: var(--accent-hover); width: 5px; }
+
 .d-quote-item::before {
     content: "";
     position: absolute;
@@ -2176,6 +2182,17 @@ a { color: inherit; text-decoration: none; }
     padding: 2px 8px;
     border-radius: 7px;
 }
+.signal-link-origin {
+    display: inline-block;
+    margin-top: 6px;
+    color: var(--text-secondary);
+    font-size: 11.5px;
+    font-weight: 750;
+    white-space: nowrap;
+}
+.signal-link-origin:hover { color: var(--accent-hover); }
+.signal-breaking .signal-link-origin { color: rgba(255,255,255,.78); }
+.signal-breaking .signal-link-origin:hover { color: #FFD4BD; }
 .signal-link-match { display: none; }
 .signals-empty {
     font-size: 14px;

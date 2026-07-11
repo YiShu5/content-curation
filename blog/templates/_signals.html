@@ -6,13 +6,17 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
 {%- endmacro %}
 
 {% macro render_deep(signal) -%}
-    {% if signal.links %}
+    {% set l = signal.links[0] if signal.links else none %}
+    {% if l and (l.record_id or l.deeplink) %}
+    {# 站内优先：有 record_id 时主链进详情页（带金句锚点），外部时间戳链降级为次要动作；
+       旧缓存 link 缺 record_id 时回退外链，record_id/deeplink 均缺时整块不渲染 #}
+    {% set anchor = (l.quote | quote_anchor) if l.quote else '' %}
+    {% set article_url = ('/article/' ~ (l.record_id | urlencode) ~ ('#' ~ anchor if anchor else '')) if l.record_id else '' %}
     <div class="signal-deep signal-deep-local">
         <div class="signal-deep-label">
-            {% if signal.links[0].quote %}你库里的相关金句{% else %}你库里的金句补充{% endif %}
+            {% if l.quote %}你库里的相关金句{% else %}你库里的金句补充{% endif %}
         </div>
-        {% for l in signal.links[:1] %}
-        <a href="{{ l.deeplink }}" target="_blank" rel="noopener" class="signal-link {% if l.quote %}signal-quote-link{% endif %}"
+        <a href="{{ article_url or l.deeplink }}"{% if not article_url %} target="_blank" rel="noopener"{% endif %} class="signal-link {% if l.quote %}signal-quote-link{% endif %}"
            {{ track_attrs('open_local', signal, 'library', l.record_id) }}>
             {% if l.quote %}
             <span class="signal-quote-mark">“</span>
@@ -28,9 +32,12 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
             <span class="signal-link-platform">{{ l.platform or '深度库' }}</span>
             <span class="signal-link-title">{{ l.title }}</span>
             {% endif %}
-            {% if l.ts %}<span class="signal-link-ts">从 {{ l.ts }} 看</span>{% endif %}
+            {% if not article_url and l.ts %}<span class="signal-link-ts">从 {{ l.ts }} 看</span>{% endif %}
         </a>
-        {% endfor %}
+        {% if article_url and l.deeplink %}
+        <a class="signal-link-origin" href="{{ l.deeplink }}" target="_blank" rel="noopener"
+           {{ track_attrs('open_origin', signal, 'library', l.record_id) }}>原片{% if l.ts %} {{ l.ts }}{% endif %} ↗</a>
+        {% endif %}
     </div>
     {% elif signal.suggest %}
     <div class="signal-deep signal-deep-external">
@@ -241,20 +248,45 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
                 return job;
             });
         }
+        function renderIngestDone(b, job, label) {
+            // 入库闭环收尾：有 record_id 时按钮变成「查看 →」站内链接；
+            // 旧格式 job（无 record_id）回退为 disabled 文案
+            if (job.record_id) {
+                var link = document.createElement('a');
+                link.className = 'signal-watch-link';
+                link.href = '/article/' + encodeURIComponent(job.record_id);
+                link.textContent = label + ' · 查看 →';
+                link.setAttribute('data-track-kind', 'open_local');
+                link.setAttribute('data-track-slot', b.dataset.trackSlot || '');
+                link.setAttribute('data-track-source', 'library');
+                link.setAttribute('data-track-item-id', job.record_id);
+                b.replaceWith(link);
+            } else {
+                b.textContent = label;
+                b.disabled = true;
+            }
+        }
         function renderIngestButton(b, job) {
             job = job || {};
             var status = job.status || '';
             b.dataset.jobId = job.job_id || b.dataset.jobId || '';
             if (status === 'queued') b.textContent = '已提交';
             else if (status === 'running') b.textContent = '入库中…';
-            else if (status === 'done') { b.textContent = '已加入深度库'; b.disabled = true; }
-            else if (status === 'exists') { b.textContent = '已在深度库'; b.disabled = true; }
+            else if (status === 'done') renderIngestDone(b, job, '已加入深度库');
+            else if (status === 'exists') renderIngestDone(b, job, '已在深度库');
             else if (status === 'failed') renderIngestFailure(b, job, '入库失败');
             else if (status === 'bad_url') renderIngestFailure(b, job, '只支持 YouTube 视频链接');
             else if (status === 'not_found') renderIngestFailure(b, job, '任务不存在，请重试');
             else renderIngestFailure(b, job, '状态异常，请重试');
         }
-        function pollIngest(b) {
+        function pollIngest(b, attempts) {
+            attempts = attempts || 0;
+            // fetch + refresh 两步 subprocess 各有 30 分钟超时，上限设 ~60 分钟；
+            // 超限不代表失败，只是停止轮询
+            if (attempts >= 1200) {
+                b.textContent = '入库仍在后台进行，稍后刷新页面查看';
+                return;
+            }
             var jobId = b.dataset.jobId || '';
             if (!jobId) return;
             fetch('/ingest/status?job_id=' + encodeURIComponent(jobId))
@@ -262,12 +294,15 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
                 .then(function (job) {
                     renderIngestButton(b, job);
                     if (job.status === 'queued' || job.status === 'running') {
-                        setTimeout(function () { pollIngest(b); }, 3000);
+                        setTimeout(function () { pollIngest(b, attempts + 1); }, 3000);
                     }
                 })
                 .catch(function () {
-                    b.textContent = '状态未知';
-                    b.disabled = false;
+                    // 瞬时网络错误（休眠恢复/服务重启）不放弃：保持禁用继续轮询，
+                    // 上限由函数顶部的 attempts 检查兜底。重新启用按钮会诱发
+                    // 二次点击 → deep_library 埋点重复计权（权重 3.0）。
+                    b.textContent = '状态未知，重试中…';
+                    setTimeout(function () { pollIngest(b, attempts + 1); }, 3000);
                 });
         }
         document.querySelectorAll('.signal-ingest-btn').forEach(function (b) {

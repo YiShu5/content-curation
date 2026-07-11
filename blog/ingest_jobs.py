@@ -56,6 +56,16 @@ def update_job(job_id, **patch):
     return job
 
 
+def archive_record_id(archive_dir):
+    """从归档目录的 metadata.json 读记录 id（/article/<id> 的主键）。
+    metadata 缺失/损坏时返回空串，由调用方决定兜底。"""
+    try:
+        meta = json.loads((Path(archive_dir) / "metadata.json").read_text(encoding="utf-8"))
+        return str(meta.get("id") or "")
+    except Exception:
+        return ""
+
+
 def find_existing_archive(url):
     key = content_key(url)
     if not key or not ARCHIVE_ROOT.exists():
@@ -93,6 +103,7 @@ def start_job(url, title="", launch=True):
             status="exists",
             message="已在深度库",
             archive_dir=existing_archive,
+            record_id=archive_record_id(existing_archive) or video_id_from_key(job_id),
             return_code=0,
         )
     current = get_job(job_id)
@@ -105,6 +116,7 @@ def start_job(url, title="", launch=True):
         status="queued",
         message="已提交",
         archive_dir="",
+        record_id="",  # 清掉历史 done 残留，防止失败态透传旧链接
         return_code=None,
     )
     if launch:
