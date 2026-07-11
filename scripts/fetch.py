@@ -36,6 +36,11 @@ load_dotenv(CONFIG_DIR / ".env")
 BIBIGPT_TOKEN = os.getenv("BIBIGPT_API_TOKEN", "")
 ARCHIVE_DIR = PROJECT_ROOT / os.getenv("ARCHIVE_DIR", "./archive")
 
+# 转录失败标记：写端（process_item）与读端（read_existing_transcript）共用。
+# ⚠️ rewrite.js 里有一份 JS 拷贝按同样前缀识别失败转录，改动需同步。
+FAIL_MARK_ERROR = "[转录获取失败"
+FAIL_MARK_EMPTY = "[无可用转录"
+
 # 国内 API（BibiGPT）需要直连，不走代理；海外 API 走系统代理
 _no_proxy_session = requests.Session()
 _no_proxy_session.trust_env = False
@@ -497,6 +502,18 @@ def resolve_archive_dir(archive_root: Path, item_id: str) -> Path | None:
     return candidates[0][2]
 
 
+def discard_failed_archive(archive_dir: Path, dir_created: bool, reason: str):
+    """失败清理的唯一出口：只删本次新建的空壳。
+
+    ⚠️ 不变量：复用的既有目录（dir_created=False）含付费转录等资产，
+    任何失败路径都必须原样保留。新增失败早退时一律调这里，不要手写 rmtree。"""
+    if dir_created:
+        shutil.rmtree(archive_dir, ignore_errors=True)
+        print(f"  [清理] {reason}，已删除本次新建目录（下次可重试）")
+    else:
+        print(f"  [保留] {reason}，复用目录不删除（含既有资产，下次可重试）")
+
+
 def read_existing_transcript(archive_dir: Path) -> tuple[str, str]:
     """读取复用目录里已有的有效转录正文，返回 (正文, 来源)。
 
@@ -519,7 +536,7 @@ def read_existing_transcript(archive_dir: Path) -> tuple[str, str]:
                 source = m.group(1)
             body = raw[end + 4:]
     body = body.strip()
-    if not body or body.startswith("[转录获取失败") or body.startswith("[无可用转录"):
+    if not body or body.startswith((FAIL_MARK_ERROR, FAIL_MARK_EMPTY)):
         return "", ""
     return body, (source if source and source != "none" else "existing")
 
@@ -639,9 +656,9 @@ transcript_source: {transcript_source or 'none'}
         if transcript:
             transcript_content += transcript
         elif transcript_error:
-            transcript_content += f"[转录获取失败: {transcript_error}]"
+            transcript_content += f"{FAIL_MARK_ERROR}: {transcript_error}]"
         else:
-            transcript_content += "[无可用转录]"
+            transcript_content += f"{FAIL_MARK_EMPTY}]"
         if not transcript_reused:
             # 复用的转录不重写文件：原 front-matter（真实抓取日期/来源）比
             # flat entry 的漂移信息更可信，且保证复用目录字节不变
@@ -658,13 +675,18 @@ transcript_source: {transcript_source or 'none'}
             "archive_dir": str(archive_dir),
         }
         if not dir_created and meta_path.exists():
-            # flat entry 的元信息常缺失/漂移（upload_date 为空、标题变体、uploader
-            # 「未知」）；复用目录时，既有 metadata 里的有效值比新 item 的空值可信
+            # flat entry 的元信息常缺失/漂移（upload_date 为空、duration=0、标题
+            # 落到「未知标题」等占位值）；复用目录时，既有 metadata 里的有效值
+            # 比新 item 的空值/占位值可信
+            _PLACEHOLDERS = ("None", "未知", "未知标题", "未知集", "直接链接")
             try:
                 prev = json.loads(meta_path.read_text(encoding="utf-8"))
-                for k in ("upload_date", "title", "uploader", "thumbnail_url", "description"):
+                for k in ("upload_date", "title", "uploader", "thumbnail_url",
+                          "description", "duration"):
                     prev_v, new_v = prev.get(k), meta.get(k)
-                    if prev_v and prev_v != "None" and (not new_v or new_v in ("None", "未知")):
+                    if prev_v in (None, "", 0, "None"):
+                        continue
+                    if not new_v or str(new_v) in _PLACEHOLDERS:
                         meta[k] = prev_v
             except Exception:
                 pass
@@ -697,19 +719,11 @@ transcript_source: {transcript_source or 'none'}
                 print(f"  [WARN] rewrite.js 失败 (exit {result.returncode})")
                 if result.stderr:
                     print(f"       {result.stderr[:300]}")
-                # 只删本次新建的空壳；复用目录含既有转录等付费资产，失败时原样保留
-                if dir_created:
-                    shutil.rmtree(archive_dir, ignore_errors=True)
-                else:
-                    print("  [保留] 复用目录不删除（含既有资产，下次可重试）")
+                discard_failed_archive(archive_dir, dir_created, "改写失败")
                 return False
         else:
             print("  [跳过] 无转录文本，跳过 AI 改写")
-            if dir_created:
-                shutil.rmtree(archive_dir, ignore_errors=True)  # 清理空壳，不留垃圾目录
-                print("  [清理] 已删除未完成目录（下次可重试）")
-            else:
-                print("  [保留] 复用目录不删除（下次可重试）")
+            discard_failed_archive(archive_dir, dir_created, "无可用转录")
             return None  # 转录失败，不写入 state，下次可重试
 
         return True

@@ -285,6 +285,30 @@ def test_record_id_fallback_to_job_id():
     print("✓ record_id falls back to video id from job_id")
 
 
+def test_requeue_clears_stale_record_id():
+    """归档消失后重新排队，不得残留旧 done 的 record_id（防失败态透传坏链接）。"""
+    old_jobs_path = jobs.JOBS_PATH
+    old_archive_root = jobs.ARCHIVE_ROOT
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            jobs.JOBS_PATH = root / "jobs.json"
+            jobs.ARCHIVE_ROOT = root / "archive"
+            jobs.ARCHIVE_ROOT.mkdir()
+            jobs.update_job(
+                "yt:abcdefghijk",
+                url="https://www.youtube.com/watch?v=abcdefghijk",
+                status="done", record_id="abcdefghijk", archive_dir="/gone",
+            )
+            job = jobs.start_job("https://www.youtube.com/watch?v=abcdefghijk", "视频", launch=False)
+            assert job["status"] == "queued", job
+            assert job["record_id"] == "", job
+    finally:
+        jobs.ARCHIVE_ROOT = old_archive_root
+        jobs.JOBS_PATH = old_jobs_path
+    print("✓ requeue clears stale record_id")
+
+
 def test_archive_record_id_handles_missing_and_corrupt_metadata():
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)

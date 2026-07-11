@@ -104,7 +104,7 @@ def test_detail_quote_anchor():
     from flask import render_template
     quotes = [
         "“带首尾引号的金句会被归一化。”",
-        "第二条金句，内容不同。",
+        {"text": "第二条金句，内容不同。", "speaker": "某嘉宾"},
         "第三条金句，hash 必须彼此不同。",
     ]
     article = {
@@ -136,6 +136,9 @@ def test_detail_quote_anchor():
     assert len(set(anchors)) == 3          # 不同金句 hash 必不同
     assert 'id="key-quotes"' in html       # 降级滚动的目标锚点
     assert "/^#q-/" in html                # 降级 JS 已注入
+    # dict 形态金句展示正文而非 Python repr
+    assert "第二条金句，内容不同。" in html
+    assert "{&#39;text&#39;" not in html and "{'text'" not in html
     # 归一化幂等：带引号与去引号文本 hash 一致；dict 形态与字符串一致
     assert app_module._quote_anchor("“带首尾引号的金句会被归一化。”") == \
         app_module._quote_anchor("带首尾引号的金句会被归一化。")

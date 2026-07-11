@@ -6,6 +6,7 @@
 选项：
   --index 0,2   只做指定序号的金句（默认全部 key_quotes）
   --text  文案  覆盖金句文案（只出一张卡，序号取 --index 第一个，缺省 0）
+  --locate 句子 语义定位用句（默认用展示文案定位；英文转录可英文定位+中文展示）
   --name/--role 覆盖署名（默认 guest_info → guests → uploader 降级）
   --out   目录  输出目录（默认 blog/data/quote_cards/）
   --shift 秒    语义定位点之后再偏移几秒抽帧（默认 2.0）
@@ -14,13 +15,16 @@
 
 流程：语义定位（embeddings.embed_query + today_signal._locate_timestamp）→
 低清整片按视频 id 缓存到 blog/data/video_cache/（同记录多金句只下载一次）→
-ffmpeg 抽帧（raw-{record_id}-{i}.png，存在即复用）→ headless Chrome 烧字幕
-（shot-{record_id}-{i}.png）。
+ffmpeg 抽帧（raw-{record_id}-{i}-{定位句哈希8位}-s{shift}.png，同键存在即复用，
+定位句/偏移变了自然走新键）→ headless Chrome 烧字幕（shot-{record_id}-{i}.png，
+成品每次运行都重新渲染）。
 
-退出码：0 成功；1 参数/元数据/工具缺失/非 YouTube；2 转录无时间戳；
-3 下载失败；4 抽帧失败；5 渲染失败；6 --strict 匹配分不足。
+退出码：0 成功；1 参数错误（含 argparse 用法错误）/元数据/工具缺失/非 YouTube；
+2 转录无时间戳；3 下载失败；4 抽帧失败；5 渲染失败；6 --strict 匹配分不足；
+7 金句向量化失败（缺 ZHIPU_API_KEY / 网络错）。
 """
 import argparse
+import hashlib
 import html
 import json
 import os
@@ -53,6 +57,7 @@ EXIT_DOWNLOAD = 3      # yt-dlp 下载失败（沿用）
 EXIT_FRAME = 4         # ffmpeg 抽帧失败（沿用）
 EXIT_RENDER = 5        # Chrome 渲染失败
 EXIT_STRICT = 6        # --strict 且匹配分 < MIN_MATCH_SCORE
+EXIT_EMBED = 7         # embed_query 失败（缺 ZHIPU_API_KEY / 网络错）
 
 _TS_RE = re.compile(r"\[(\d{2}):(\d{2}):(\d{2})\]")
 
@@ -69,12 +74,10 @@ def hhmmss(s):
 # ── 文案与排版（纯函数）────────────────────────────────────────────────────
 def normalize_quote(item):
     """归一化金句：dict 形态取 text/quote/content 键；strip 首尾中英文引号与空白。
-    模板统一加「」，这里先去掉自带引号，避免出现 「“xxx”」。"""
-    if isinstance(item, dict):
-        raw = item.get("text") or item.get("quote") or item.get("content") or ""
-    else:
-        raw = str(item or "")
-    return raw.strip().strip("“”\"'").strip()
+    模板统一加「」，这里先去掉自带引号，避免出现 「“xxx”」。
+    实现委托 today_signal（公共别名 quote_text，旧版本降级 _quote_text），避免逐字拷贝。"""
+    fn = getattr(T, "quote_text", None) or T._quote_text
+    return fn(item)
 
 
 def font_size_for(text):
@@ -221,15 +224,21 @@ def require_tool(name, hint):
 
 def locate_quote(archive_dir, text):
     """语义定位金句时间点：embed_query + today_signal._locate_timestamp。
-    返回 (sec, snippet, score) 或 None。"""
-    vec = np.asarray(embeddings.embed_query(text), dtype=np.float32)
+    返回 (sec, snippet, score) 或 None；向量化失败以 EXIT_EMBED 明确退出。"""
+    try:
+        vec = np.asarray(embeddings.embed_query(text), dtype=np.float32)
+    except Exception as e:
+        err(f"错误：金句向量化失败（请检查 ZHIPU_API_KEY / 网络）：{e}")
+        sys.exit(EXIT_EMBED)
     return T._locate_timestamp(Path(archive_dir), vec)
 
 
 def find_cached_video(video_id):
-    """探测 video_cache 里的整片缓存：glob {id}.*，多命中取排序第一；0 字节视为无效。"""
+    """探测 video_cache 里的整片缓存：glob {id}.*，排除 yt-dlp 的 .part 临时文件
+    （下载中断的残留不算有效缓存）；多命中取排序第一；0 字节视为无效。"""
     cache = Path(VIDEO_CACHE_DIR)
-    hits = sorted(cache.glob(f"{video_id}.*"))
+    hits = sorted(p for p in cache.glob(f"{video_id}.*")
+                  if not p.name.endswith(".part"))
     if not hits:
         return None
     first = hits[0]
@@ -242,12 +251,25 @@ def find_cached_video(video_id):
     return None
 
 
+def raw_frame_name(record_id, index, locate_text, shift):
+    """raw 帧缓存键：包含定位句哈希 + 偏移，改 --locate/--text/--shift 或
+    select-quotes 重排金句后自然走新键，不会静默复用旧帧。"""
+    h = hashlib.sha1((locate_text or "").encode("utf-8")).hexdigest()[:8]
+    return f"raw-{record_id}-{index}-{h}-s{float(shift)}.png"
+
+
+# YouTube 反爬（"Sign in to confirm you're not a bot"）时经 --cookies-from-browser 透传
+YT_DLP_EXTRA_ARGS: list = []
+
+
 def _run_yt_dlp(url, out_tmpl):
     yt = require_tool("yt-dlp", "可在根 .venv 安装：.venv/bin/pip install yt-dlp")
+    # 不加 --no-part：让 yt-dlp 走默认 .part 临时文件 + 完成后改名，中断可续传，
+    # 且残留的部分文件不会被 find_cached_video 当成有效缓存。
     return subprocess.run(
         [yt, "-f", "bv*[height<=720]/b[height<=720]/bv*/b/wv*/w",
          "--extractor-args", "youtube:player_client=android",
-         "--no-part", "-o", out_tmpl, url],
+         *YT_DLP_EXTRA_ARGS, "-o", out_tmpl, url],
         capture_output=True, text=True)
 
 
@@ -277,11 +299,14 @@ def _run_ffmpeg(video, at, out):
 
 
 def extract_frame(video, at, out):
+    out = Path(out)
+    out.unlink(missing_ok=True)  # 先清旧产物，避免上次残留掩盖本次失败
     r = _run_ffmpeg(video, at, out)
-    if not Path(out).exists():
+    if getattr(r, "returncode", 1) != 0 or not out.exists():
+        out.unlink(missing_ok=True)  # 失败时不留半成品进 raw 缓存
         err("FRAME_FAIL: " + (getattr(r, "stderr", "") or "")[-700:])
         sys.exit(EXIT_FRAME)
-    print(f"抽帧 OK -> {Path(out).name} @ {hhmmss(at)}")
+    print(f"抽帧 OK -> {out.name} @ {hhmmss(at)}")
 
 
 def _run_chrome(html_path, out_png):
@@ -298,13 +323,16 @@ def _run_chrome(html_path, out_png):
 
 
 def render_card(raw_png, text, name, role, out_png):
+    """成品每次运行都重新渲染（Chrome 秒级，不值得缓存换错误风险）。"""
     out_png = Path(out_png)
+    out_png.unlink(missing_ok=True)  # 先清旧产物，避免上次残留掩盖本次失败
     html_path = out_png.with_suffix(".html")
     html_path.write_text(
         overlay_html(str(Path(raw_png).resolve()), text, name, role),
         encoding="utf-8")
     r = _run_chrome(html_path.resolve(), out_png)
-    if not out_png.exists():
+    if getattr(r, "returncode", 1) != 0 or not out_png.exists():
+        out_png.unlink(missing_ok=True)
         err("RENDER_FAIL: " + (getattr(r, "stderr", "") or "")[-700:])
         sys.exit(EXIT_RENDER)  # html 留在原地便于排查
     html_path.unlink(missing_ok=True)
@@ -328,13 +356,25 @@ def parse_index(spec):
     return idxs
 
 
+class _ArgumentParser(argparse.ArgumentParser):
+    """argparse 用法错误默认 exit 2，与 EXIT_NO_TIMESTAMP=2 撞车
+    （文档承诺 2=转录无时间戳）→ 统一按 EXIT_USAGE=1 退出。"""
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        err(f"错误：{message}")
+        sys.exit(EXIT_USAGE)
+
+
 def build_parser():
-    ap = argparse.ArgumentParser(
+    ap = _ArgumentParser(
         description="为一条 rewrite_complete 记录的金句生成「真实帧+字幕」PNG 卡")
     ap.add_argument("record_id", nargs="?", help="metadata 的 id（视频 id）")
     ap.add_argument("--dir", help="直接指定 archive 目录（替代 record_id）")
     ap.add_argument("--index", help="逗号分隔的金句序号，默认全部 key_quotes")
     ap.add_argument("--text", help="覆盖金句文案（只出一张卡）")
+    ap.add_argument("--locate", help="语义定位用句（默认用展示文案定位；"
+                                     "英文转录可英文定位+中文展示）")
     ap.add_argument("--name", help="覆盖署名人名")
     ap.add_argument("--role", help="覆盖署名头衔")
     ap.add_argument("--out", help="输出目录，默认 blog/data/quote_cards/")
@@ -343,13 +383,21 @@ def build_parser():
     ap.add_argument("--force", action="store_true", help="无视 raw 帧缓存重新抽帧")
     ap.add_argument("--strict", action="store_true",
                     help=f"匹配分 < {MIN_MATCH_SCORE} 时中止（默认只警告）")
+    ap.add_argument("--cookies-from-browser", dest="cookies_from_browser",
+                    metavar="BROWSER",
+                    help="YouTube 反爬时透传给 yt-dlp（如 chrome / safari）")
     return ap
 
 
 def main(argv=None):
     a = build_parser().parse_args(argv)
+    if a.cookies_from_browser:
+        YT_DLP_EXTRA_ARGS[:] = ["--cookies-from-browser", a.cookies_from_browser]
 
     # 1) 解析记录目录 + metadata
+    if a.dir and a.record_id:
+        err("错误：record_id 与 --dir 只能二选一（现在两个都给了）")
+        sys.exit(EXIT_USAGE)
     if a.dir:
         d = Path(a.dir)
         meta = load_metadata(d)
@@ -367,9 +415,19 @@ def main(argv=None):
     # 2) fail-fast：非 YouTube 一律不做（在任何下载/定位之前）
     ensure_youtube(meta.get("url"))
 
-    # 3) 选定金句
+    # 3) 选定金句（selected = [(序号, 展示文案)]；--locate 只影响语义定位句）
+    locate_override = None
+    if a.locate is not None:
+        locate_override = normalize_quote(a.locate)
+        if not locate_override:
+            err("错误：--locate 为空")
+            sys.exit(EXIT_USAGE)
     if a.text:
         i0 = parse_index(a.index)[0] if a.index else 0
+        n_max = max(len(meta.get("key_quotes") or []), 1)
+        if i0 < 0 or i0 >= n_max:
+            err(f"错误：--index {i0} 越界（--text 模式有效范围 0..{n_max - 1}）")
+            sys.exit(EXIT_USAGE)
         text = normalize_quote(a.text)
         if not text:
             err("错误：--text 为空")
@@ -399,22 +457,26 @@ def main(argv=None):
     out_dir = Path(a.out) if a.out else Path(DEFAULT_OUT_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 4) raw 帧：存在即复用（--force 重做）；需要新帧时才定位+下载
-    need = []  # (i, text, raw_path)
+    # 4) raw 帧：缓存键含定位句哈希 + shift，同键存在即复用（--force 重做）；
+    #    需要新帧时才定位+下载
+    frames = []  # (i, 展示文案, raw_path)
+    need = []    # (i, 定位句, raw_path)
     for i, text in selected:
-        raw = out_dir / f"raw-{rid}-{i}.png"
+        locate_text = locate_override or text
+        raw = out_dir / raw_frame_name(rid, i, locate_text, a.shift)
+        frames.append((i, text, raw))
         if raw.exists() and not a.force:
             print(f"[{i}] 复用已有帧 {raw.name}")
         else:
-            need.append((i, text, raw))
+            need.append((i, locate_text, raw))
 
     if need:
         if not has_timestamps(d / "transcript.md"):
             err("NO_TIMESTAMP（该转录无 [HH:MM:SS] 时间戳，无法定位抽帧）")
             sys.exit(EXIT_NO_TIMESTAMP)
-        located = []  # (i, text, raw, at)
-        for i, text, raw in need:
-            loc = locate_quote(d, text)
+        located = []  # (i, raw, at)
+        for i, locate_text, raw in need:
+            loc = locate_quote(d, locate_text)
             if not loc:
                 err(f"NO_TIMESTAMP（金句 {i} 无法在转录中定位）")
                 sys.exit(EXIT_NO_TIMESTAMP)
@@ -422,20 +484,19 @@ def main(argv=None):
             print(f"[{i}] 定位: {hhmmss(sec)} (score={score:.3f}) 片段≈{snippet!r}")
             if score < MIN_MATCH_SCORE:
                 err(f"警告：金句 {i} 匹配分 {score:.3f} < {MIN_MATCH_SCORE}，"
-                    "定位可能不准（可用 --shift 微调或 --text 换定位句）")
+                    "定位可能不准（可用 --shift 微调或 --locate 换定位句）")
                 if a.strict:
                     err("--strict：中止")
                     sys.exit(EXIT_STRICT)
-            located.append((i, text, raw, sec + a.shift))
+            located.append((i, raw, sec + a.shift))
         video = download_video(meta.get("url"), rid)  # 同记录多金句只下载一次
-        for i, text, raw, at in located:
+        for i, raw, at in located:
             extract_frame(video, at, raw)
 
-    # 5) 烧字幕出成品
+    # 5) 烧字幕出成品（每次运行都重新渲染，不缓存成品）
     name, role = resolve_attribution(meta, a.name, a.role)
     done = []
-    for i, text in selected:
-        raw = out_dir / f"raw-{rid}-{i}.png"
+    for i, text, raw in frames:
         out = out_dir / f"shot-{rid}-{i}.png"
         render_card(raw, text, name, role, out)
         print(f"OK -> {out}")

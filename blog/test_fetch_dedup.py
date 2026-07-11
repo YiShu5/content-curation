@@ -226,6 +226,57 @@ def test_process_item_new_dir_still_cleaned_on_no_transcript():
     print("✓ 新建目录无转录时仍被清理（旧行为保留）")
 
 
+def test_process_item_reuse_preserves_duration_and_real_title():
+    """复用目录时 flat entry 的 0 时长/占位标题不得覆盖既有真实值。"""
+    rid = "vidabc10001"
+    old = {k: getattr(fetch, k) for k in (
+        "ARCHIVE_DIR", "subprocess", "get_transcript_baoyu", "get_transcript_ytapi",
+        "get_transcript_whisper", "get_transcript_bibigpt", "download_thumbnail")}
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            fetch.ARCHIVE_DIR = root
+            stub = _write_dir(root, f"20260708-真标题-{_suffix(rid)}",
+                              {"id": rid, "rewrite_complete": False,
+                               "duration": 1234, "title": "真标题", "uploader": "真频道"},
+                              VALID_TRANSCRIPT)
+            for fn in ("get_transcript_baoyu", "get_transcript_ytapi",
+                       "get_transcript_whisper", "get_transcript_bibigpt"):
+                setattr(fetch, fn, _forbid(fn))
+            fetch.download_thumbnail = lambda url, dest: False
+            fetch.subprocess = SimpleNamespace(run=lambda *a, **kw: SimpleNamespace(
+                returncode=0, stdout="", stderr=""))
+
+            degraded = fetch.VideoItem(
+                id=rid, url=f"https://www.youtube.com/watch?v={rid}",
+                title="未知标题", uploader="未知", platform="youtube",
+                upload_date="", duration=0, thumbnail_url="", description="")
+            assert fetch.process_item(degraded) is True
+            meta = json.loads((stub / "metadata.json").read_text(encoding="utf-8"))
+            assert meta["duration"] == 1234, meta
+            assert meta["title"] == "真标题", meta
+            assert meta["uploader"] == "真频道", meta
+    finally:
+        for k, v in old.items():
+            setattr(fetch, k, v)
+    print("✓ 复用目录保留既有 duration/标题，不被占位值覆盖")
+
+
+def test_cleanup_keeper_prefers_feishu_synced():
+    """同 id 两份 complete：已同步飞书的份要赢（否则下次 sync 制造飞书重复记录）。"""
+    rid = "vidccc00003"
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        _write_dir(root, f"20260701-已同步-{_suffix(rid)}",
+                   {"id": rid, "rewrite_complete": True, "feishu_synced": True})
+        _write_dir(root, f"20260710-未同步-{_suffix(rid)}",
+                   {"id": rid, "rewrite_complete": True, "feishu_synced": False})
+        keep, move = cleanup.plan_cleanup(root)
+        assert keep[0][1].name.startswith("20260701-已同步"), keep
+        assert move[0][1].name.startswith("20260710-未同步"), move
+    print("✓ cleanup 保留判定优先已同步飞书的份")
+
+
 def test_cleanup_plan_and_dry_run():
     rid_a, rid_b = "vidaaa00001", "vidbbb00002"
     with tempfile.TemporaryDirectory() as td:
@@ -307,6 +358,8 @@ if __name__ == "__main__":
     test_process_item_reuses_complete_dir_without_transcription()
     test_process_item_reused_stub_survives_rewrite_failure()
     test_process_item_new_dir_still_cleaned_on_no_transcript()
+    test_process_item_reuse_preserves_duration_and_real_title()
+    test_cleanup_keeper_prefers_feishu_synced()
     test_cleanup_plan_and_dry_run()
     test_cleanup_apply_moves_to_quarantine_without_overwrite()
     print("\n全部通过 ✅")

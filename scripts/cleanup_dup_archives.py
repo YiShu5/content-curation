@@ -24,6 +24,22 @@ QUARANTINE_NAME = "_duplicates_quarantine"
 RICHNESS_FIELDS = ("scores", "scores_v1", "key_quotes", "key_quotes_all",
                    "guest_info", "core_ideas", "deep_summary")
 
+# 保留者优先级与 fetch.resolve_archive_dir 的复用优先级同源
+# （rewrite_complete 优先、目录名最新兜底），此处额外考虑：
+# - feishu_synced/feishu_doc_synced：sync-feishu*.js 只新建不更新，
+#   保留未同步份会让下次 sync 制造飞书重复记录（CLAUDE.md 的坑）
+# - richness：后处理字段更全的份
+
+
+def _keeper_key(entry):
+    d, meta = entry
+    return (
+        bool(meta.get("rewrite_complete")),
+        bool(meta.get("feishu_synced")) or bool(meta.get("feishu_doc_synced")),
+        _richness(meta),
+        d.name,
+    )
+
 
 def _load_meta(d: Path):
     try:
@@ -60,10 +76,7 @@ def plan_cleanup(archive_root: Path):
     for rid, entries in collect_groups(archive_root).items():
         if len(entries) == 1:
             continue
-        entries.sort(
-            key=lambda e: (bool(e[1].get("rewrite_complete")), _richness(e[1]), e[0].name),
-            reverse=True,
-        )
+        entries.sort(key=_keeper_key, reverse=True)
         keep.append((rid, entries[0][0]))
         move.extend((rid, d) for d, _ in entries[1:])
     return keep, move

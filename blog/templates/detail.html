@@ -132,9 +132,10 @@
                 <h2 class="d-section-title">🗣 金句精选</h2>
                 <div class="d-quotes-list">
                     {% for q in article.key_quotes[:3] %}
-                    <div class="d-quote-item"{% if q | quote_anchor %} id="{{ q | quote_anchor }}"{% endif %}>
+                    {% set qa = q | quote_anchor %}
+                    <div class="d-quote-item"{% if qa %} id="{{ qa }}"{% endif %}>
                         <span class="d-quote-mark">"</span>
-                        <p class="d-quote-text">{{ q }}</p>
+                        <p class="d-quote-text">{{ q | quote_display }}</p>
                     </div>
                     {% endfor %}
                 </div>

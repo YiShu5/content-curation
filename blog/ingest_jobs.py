@@ -116,6 +116,7 @@ def start_job(url, title="", launch=True):
         status="queued",
         message="已提交",
         archive_dir="",
+        record_id="",  # 清掉历史 done 残留，防止失败态透传旧链接
         return_code=None,
     )
     if launch:

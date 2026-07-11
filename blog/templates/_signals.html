@@ -298,8 +298,11 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
                     }
                 })
                 .catch(function () {
-                    b.textContent = '状态未知';
-                    b.disabled = false;
+                    // 瞬时网络错误（休眠恢复/服务重启）不放弃：保持禁用继续轮询，
+                    // 上限由函数顶部的 attempts 检查兜底。重新启用按钮会诱发
+                    // 二次点击 → deep_library 埋点重复计权（权重 3.0）。
+                    b.textContent = '状态未知，重试中…';
+                    setTimeout(function () { pollIngest(b, attempts + 1); }, 3000);
                 });
         }
         document.querySelectorAll('.signal-ingest-btn').forEach(function (b) {

@@ -44,12 +44,25 @@ def _strip_markdown(text):
 def _quote_anchor(quote):
     """金句锚点 id：归一化文本的短 hash。信号链接与详情页两端用同一 filter
     计算，文本一致即命中；不按 index 定位（金句会被 select-quotes 重排、
-    rescore 重建，index 含义会漂移）。"""
-    import today_signal
-    norm = today_signal._quote_text(quote)
-    if not norm:
+    rescore 重建，index 含义会漂移）。任何异常返回空串——锚点是增强功能，
+    不能让 today_signal 的导入问题把详情页打成 500。"""
+    try:
+        import today_signal
+        norm = today_signal.quote_text(quote)
+        if not norm:
+            return ""
+        return "q-" + hashlib.sha1(norm.encode("utf-8")).hexdigest()[:8]
+    except Exception:
         return ""
-    return "q-" + hashlib.sha1(norm.encode("utf-8")).hexdigest()[:8]
+
+
+def _quote_display(quote):
+    """金句展示文本：dict 形态取正文，其余原样。异常时退回 str。"""
+    try:
+        import today_signal
+        return today_signal.quote_text(quote) or str(quote or "")
+    except Exception:
+        return str(quote or "")
 
 # 优先加载项目根目录的 config/.env（开发环境无需手动设置系统变量）
 _env_path = Path(__file__).parent.parent / "config" / ".env"
@@ -68,6 +81,7 @@ app.config.from_object(Config)
 app.jinja_env.filters['markdown'] = _render_markdown
 app.jinja_env.filters['strip_md'] = _strip_markdown
 app.jinja_env.filters['quote_anchor'] = _quote_anchor
+app.jinja_env.filters['quote_display'] = _quote_display
 
 
 # ── 本地 archive 作为真相源（不依赖飞书）─────────────────────────────────────
