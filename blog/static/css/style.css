@@ -818,6 +818,50 @@ a { color: inherit; text-decoration: none; }
 .d-quote-item:target { background: rgba(184,95,66,.08); }
 .d-quote-item:target::before { background: var(--accent-hover); width: 5px; }
 
+.d-quote-card-btn {
+    margin-left: auto;
+    align-self: flex-start;
+    flex-shrink: 0;
+    border: 1px solid rgba(184,95,66,.35);
+    background: transparent;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 12px;
+    border-radius: 14px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.d-quote-card-btn:hover { background: rgba(184,95,66,.1); }
+
+.qc-modal { position: fixed; inset: 0; z-index: 300; }
+.qc-backdrop { position: absolute; inset: 0; background: rgba(10,10,18,.6); }
+.qc-panel {
+    position: relative;
+    max-width: 720px;
+    margin: 8vh auto 0;
+    background: var(--card-bg);
+    border-radius: 14px;
+    padding: 18px;
+    box-shadow: 0 24px 60px rgba(0,0,0,.35);
+}
+.qc-panel img { width: 100%; border-radius: 8px; display: block; }
+.qc-actions { display: flex; gap: 10px; margin-top: 12px; }
+.qc-btn {
+    border: 1px solid rgba(184,95,66,.35);
+    background: transparent;
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 700;
+    padding: 7px 16px;
+    border-radius: 9px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+}
+.qc-btn:hover { background: rgba(184,95,66,.1); }
+.qc-status { color: var(--text-secondary); font-size: 13px; padding: 24px 0; text-align: center; }
+
 .d-quote-item::before {
     content: "";
     position: absolute;

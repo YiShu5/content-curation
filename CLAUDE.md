@@ -31,6 +31,6 @@
 - fetch.py 建目录前按 id 的 sha1 后缀复用既有归档（`resolve_archive_dir`），同一视频不再因日期/标题漂移每天新建目录；复用目录里的有效转录直接复用，失败时**不 rmtree**（只清理本次新建的空壳）。
 - 存量重复目录用 `scripts/cleanup_dup_archives.py` 清理：默认 dry-run，`--apply` 把冗余份**移动**到 `archive/_duplicates_quarantine/`（绝不删除，转录是付费资产）。
 
-## 转录
-- BibiGPT 为主（按**时长**计费，注意余额），baoyu 免费降级**仅支持 YouTube**。
+## 转录（2026-07 云端优先）
+- 顺序：免费字幕 API（baoyu/ytapi，**仅 YouTube**）→ Groq 云端 whisper（约 $0.04/小时，需 `GROQ_API_KEY`，无 key 自动跳过）→ BibiGPT（全托管付费，按**时长**计费注意余额）→ whisper 本地（最最兜底，慢）。
 - 小红书/online-media 的字幕在 `detail.subtitlesArray`（fetch.py 已处理）。

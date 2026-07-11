@@ -71,67 +71,9 @@ def hhmmss(s):
     return f"{s // 3600:02d}:{s % 3600 // 60:02d}:{s % 60:02d}"
 
 
-# ── 文案与排版（纯函数）────────────────────────────────────────────────────
-def normalize_quote(item):
-    """归一化金句：dict 形态取 text/quote/content 键；strip 首尾中英文引号与空白。
-    模板统一加「」，这里先去掉自带引号，避免出现 「“xxx”」。
-    实现委托 today_signal（公共别名 quote_text，旧版本降级 _quote_text），避免逐字拷贝。"""
-    fn = getattr(T, "quote_text", None) or T._quote_text
-    return fn(item)
-
-
-def font_size_for(text):
-    """按字数选字号：≤22 字 60px / ≤36 字 50px / ≤54 字 42px / 更长 36px。"""
-    n = len(text or "")
-    if n <= 22:
-        return 60
-    if n <= 36:
-        return 50
-    if n <= 54:
-        return 42
-    return 36
-
-
-def first_guest(guests):
-    """guests 可能是字符串（按 、,，/| 切第一个）或 list（取第一个非空）。"""
-    if isinstance(guests, str):
-        for part in re.split(r"[、,，/|]", guests):
-            part = part.strip()
-            if part:
-                return part
-    elif isinstance(guests, list):
-        for part in guests:
-            if isinstance(part, dict):
-                name = str(part.get("name") or part.get("speaker") or "").strip()
-            else:
-                name = str(part or "").strip()
-            if name:
-                return name
-    return ""
-
-
-def resolve_attribution(meta, name_override=None, role_override=None):
-    """署名降级链：guest_info[0].name → guests → uploader；头衔取 guest_info[0].title
-    按 、 切第一段并截断约 20 字。返回 (name, role)，role 可为空串。"""
-    gi = meta.get("guest_info") or []  # 兼容 null / 缺失
-    g0 = gi[0] if isinstance(gi, list) and gi else {}
-    if not isinstance(g0, dict):
-        g0 = {"name": str(g0 or "")}
-
-    name = name_override
-    if name is None:
-        name = str(g0.get("name") or "").strip()
-        if not name:
-            name = first_guest(meta.get("guests"))
-        if not name:
-            name = str(meta.get("uploader") or "").strip()
-
-    role = role_override
-    if role is None:
-        role = str(g0.get("title") or "").strip()
-        if role:
-            role = re.split(r"、", role)[0].strip()[:20]
-    return name, role
+# ── 文案与排版（纯函数以 text_card 为单一真相源，本 CLI 反向 import）─────────
+from text_card import (font_size_for, normalize_quote, first_guest,  # noqa: F401
+                       resolve_attribution, run_chrome_screenshot)
 
 
 def overlay_html(img, text, name, role):
@@ -311,16 +253,12 @@ def extract_frame(video, at, out):
 
 
 def _run_chrome(html_path, out_png):
-    chrome = Path(CHROME)
-    if not chrome.exists():
-        err(f"错误：未找到 Chrome（{CHROME}），无法合成字幕卡")
+    try:
+        return run_chrome_screenshot(html_path, out_png, chrome_path=CHROME,
+                                     timeout=None)
+    except FileNotFoundError as e:
+        err(f"错误：{e}")
         sys.exit(EXIT_USAGE)
-    return subprocess.run(
-        [str(chrome), "--headless=new", "--disable-gpu", "--hide-scrollbars",
-         "--force-device-scale-factor=1", "--window-size=1280,720",
-         "--virtual-time-budget=2500", f"--screenshot={out_png}",
-         f"file://{html_path}"],
-        capture_output=True, text=True)
 
 
 def render_card(raw_png, text, name, role, out_png):
