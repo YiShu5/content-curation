@@ -404,7 +404,7 @@ def test_cached_link_without_record_id_falls_back_to_deeplink():
             attention=[], signal_meta={"window_hours": 48},
         )
     assert 'href="https://www.youtube.com/watch?v=oldvideo123&amp;t=100s"' in html
-    assert "/article/" not in html
+    assert 'href="/article/' not in html
     assert "从 1:40 看" in html          # 主链即外链时 ts 保留在主链
     assert "signal-link-origin" not in html  # 无站内链就没有次级外链
     print("✓ 旧缓存 link 无 record_id 回退外链")

@@ -248,20 +248,45 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
                 return job;
             });
         }
+        function renderIngestDone(b, job, label) {
+            // 入库闭环收尾：有 record_id 时按钮变成「查看 →」站内链接；
+            // 旧格式 job（无 record_id）回退为 disabled 文案
+            if (job.record_id) {
+                var link = document.createElement('a');
+                link.className = 'signal-watch-link';
+                link.href = '/article/' + encodeURIComponent(job.record_id);
+                link.textContent = label + ' · 查看 →';
+                link.setAttribute('data-track-kind', 'open_local');
+                link.setAttribute('data-track-slot', b.dataset.trackSlot || '');
+                link.setAttribute('data-track-source', 'library');
+                link.setAttribute('data-track-item-id', job.record_id);
+                b.replaceWith(link);
+            } else {
+                b.textContent = label;
+                b.disabled = true;
+            }
+        }
         function renderIngestButton(b, job) {
             job = job || {};
             var status = job.status || '';
             b.dataset.jobId = job.job_id || b.dataset.jobId || '';
             if (status === 'queued') b.textContent = '已提交';
             else if (status === 'running') b.textContent = '入库中…';
-            else if (status === 'done') { b.textContent = '已加入深度库'; b.disabled = true; }
-            else if (status === 'exists') { b.textContent = '已在深度库'; b.disabled = true; }
+            else if (status === 'done') renderIngestDone(b, job, '已加入深度库');
+            else if (status === 'exists') renderIngestDone(b, job, '已在深度库');
             else if (status === 'failed') renderIngestFailure(b, job, '入库失败');
             else if (status === 'bad_url') renderIngestFailure(b, job, '只支持 YouTube 视频链接');
             else if (status === 'not_found') renderIngestFailure(b, job, '任务不存在，请重试');
             else renderIngestFailure(b, job, '状态异常，请重试');
         }
-        function pollIngest(b) {
+        function pollIngest(b, attempts) {
+            attempts = attempts || 0;
+            // fetch + refresh 两步 subprocess 各有 30 分钟超时，上限设 ~60 分钟；
+            // 超限不代表失败，只是停止轮询
+            if (attempts >= 1200) {
+                b.textContent = '入库仍在后台进行，稍后刷新页面查看';
+                return;
+            }
             var jobId = b.dataset.jobId || '';
             if (!jobId) return;
             fetch('/ingest/status?job_id=' + encodeURIComponent(jobId))
@@ -269,7 +294,7 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
                 .then(function (job) {
                     renderIngestButton(b, job);
                     if (job.status === 'queued' || job.status === 'running') {
-                        setTimeout(function () { pollIngest(b); }, 3000);
+                        setTimeout(function () { pollIngest(b, attempts + 1); }, 3000);
                     }
                 })
                 .catch(function () {

@@ -75,6 +75,31 @@ def test_detail_related_prefers_cover_url():
     print("✓ detail related prefers cover_url")
 
 
+def test_ingest_status_passes_through_record_id():
+    """API 契约：/ingest/status 原样透传 job dict（含 record_id），app.py 零改动的前提。"""
+    import json as _json
+    import ingest_jobs as jobs
+    old_path = jobs.JOBS_PATH
+    try:
+        with TemporaryDirectory() as tmp:
+            jobs.JOBS_PATH = Path(tmp) / "jobs.json"
+            jobs.JOBS_PATH.write_text(_json.dumps({
+                "yt:abcdefghijk": {
+                    "job_id": "yt:abcdefghijk",
+                    "status": "done",
+                    "record_id": "abcdefghijk",
+                    "message": "已加入深度库",
+                }
+            }), encoding="utf-8")
+            client = app.test_client()
+            resp = client.get("/ingest/status?job_id=yt:abcdefghijk")
+            assert resp.status_code == 200
+            assert resp.get_json()["record_id"] == "abcdefghijk"
+    finally:
+        jobs.JOBS_PATH = old_path
+    print("✓ ingest status passes through record_id")
+
+
 def test_detail_quote_anchor():
     from flask import render_template
     quotes = [
@@ -160,6 +185,7 @@ if __name__ == "__main__":
     test_homepage_renders()
     test_homepage_shows_missing_signal_state_when_cache_absent()
     test_detail_related_prefers_cover_url()
+    test_ingest_status_passes_through_record_id()
     test_detail_quote_anchor()
     test_missing_attention_promote_does_not_write_positive_log()
     print("\n全部通过 ✅")
