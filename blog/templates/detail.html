@@ -126,13 +126,13 @@
             <div class="d-guest-tooltip" id="guest-tooltip"></div>
             {% endif %}
 
-            <!-- 金句精选（最多 3 条） -->
+            <!-- 金句精选（最多 3 条）；id 供今日信号的站内深链锚点定位 -->
             {% if article.key_quotes %}
-            <section>
+            <section id="key-quotes">
                 <h2 class="d-section-title">🗣 金句精选</h2>
                 <div class="d-quotes-list">
                     {% for q in article.key_quotes[:3] %}
-                    <div class="d-quote-item">
+                    <div class="d-quote-item"{% if q | quote_anchor %} id="{{ q | quote_anchor }}"{% endif %}>
                         <span class="d-quote-mark">"</span>
                         <p class="d-quote-text">{{ q }}</p>
                     </div>
@@ -186,6 +186,14 @@
 </div>
 
 <script>
+// 金句锚点降级：信号金句不在展示的前 3 条里（或已被重排）时，诚实滚到金句区
+(function () {
+    if (/^#q-/.test(location.hash) && !document.getElementById(location.hash.slice(1))) {
+        const kq = document.getElementById('key-quotes');
+        if (kq) kq.scrollIntoView();
+    }
+})();
+
 // 嘉宾气泡 tooltip
 (function () {
     const trigger = document.getElementById('guest-trigger');

@@ -364,9 +364,109 @@ def test_cached_library_link_enriches_and_renders_quote():
         )
     assert "你库里的相关金句" in html
     assert "Jack 说" in html
-    assert "从 0:30 看" in html
     assert "signal-quote-link" in html
-    print("✓ 库内补充展示为相关金句")
+    # 主链是站内详情页 + 金句锚点（与详情页同一 filter 计算，文本一致即命中）
+    import app as app_module
+    anchor = app_module._quote_anchor(link["quote"])
+    assert f'href="/article/local1#{anchor}" class="signal-link' in html
+    assert 'data-track-kind="open_local"' in html
+    # 外部时间戳链降级为次要动作，ts 只出现在外链上
+    assert "从 0:30 看" not in html
+    assert "原片 0:30 ↗" in html
+    assert 'data-track-kind="open_origin"' in html
+    assert 'class="signal-link-origin" href="https://www.youtube.com/watch?v=fGKNUvivvnc&amp;t=30s"' in html
+    print("✓ 库内补充展示为相关金句（站内主链 + 外链降级）")
+
+
+def test_cached_link_without_record_id_falls_back_to_deeplink():
+    """旧缓存兼容：link 只有 deeplink 没有 record_id → 回退外链渲染且不崩。"""
+    from flask import render_template
+    from app import app
+
+    signal = {
+        "title": "旧结构信号",
+        "url": "https://example.com/news",
+        "summary": "总结。",
+        "why": "理由。",
+        "links": [{
+            "title": "旧缓存里的库内内容",
+            "platform": "YouTube",
+            "deeplink": "https://www.youtube.com/watch?v=oldvideo123&t=100s",
+            "ts": "1:40",
+        }],
+        "slot": "industry_trend",
+        "slot_label": "1–3 个月行业趋势",
+        "item_id": "old1",
+    }
+    with app.test_request_context("/"):
+        html = render_template(
+            "_signals.html", breaking=None, signals=[signal],
+            attention=[], signal_meta={"window_hours": 48},
+        )
+    assert 'href="https://www.youtube.com/watch?v=oldvideo123&amp;t=100s"' in html
+    assert "/article/" not in html
+    assert "从 1:40 看" in html          # 主链即外链时 ts 保留在主链
+    assert "signal-link-origin" not in html  # 无站内链就没有次级外链
+    print("✓ 旧缓存 link 无 record_id 回退外链")
+
+
+def test_cached_link_with_record_id_but_no_quote_links_without_fragment():
+    """promote 内存态/enrich 未补到 quote：主链为无锚点的 /article/<id>。"""
+    from flask import render_template
+    from app import app
+
+    signal = {
+        "title": "无金句信号",
+        "url": "https://example.com/news",
+        "summary": "总结。",
+        "why": "理由。",
+        "links": [{
+            "record_id": "rec9",
+            "title": "库内内容",
+            "platform": "YouTube",
+            "deeplink": "https://www.youtube.com/watch?v=rec9video00&t=5s",
+            "ts": "0:05",
+        }],
+        "slot": "consumer_growth",
+        "slot_label": "C 端 AI 产品与增长",
+        "item_id": "nq1",
+    }
+    with app.test_request_context("/"):
+        html = render_template(
+            "_signals.html", breaking=None, signals=[signal],
+            attention=[], signal_meta={"window_hours": 48},
+        )
+    assert 'href="/article/rec9" class="signal-link' in html
+    assert "/article/rec9#" not in html
+    assert "你库里的金句补充" in html
+    assert "signal-link-origin" in html
+    print("✓ 有 record_id 无 quote 时主链无锚点")
+
+
+def test_cached_link_empty_dict_renders_nothing():
+    """link 为空 dict：整块（含 label 与外壳）不渲染，不产生空 href 可点元素。"""
+    from flask import render_template
+    from app import app
+
+    signal = {
+        "title": "空链接信号",
+        "url": "https://example.com/news",
+        "summary": "总结。",
+        "why": "理由。",
+        "links": [{}],
+        "slot": "industry_trend",
+        "slot_label": "1–3 个月行业趋势",
+        "item_id": "el1",
+    }
+    with app.test_request_context("/"):
+        html = render_template(
+            "_signals.html", breaking=None, signals=[signal],
+            attention=[], signal_meta={"window_hours": 48},
+        )
+    assert "signal-deep-local" not in html
+    assert "你库里的" not in html
+    assert 'href=""' not in html
+    print("✓ 空 link 整块不渲染")
 
 
 def test_attention_card_renders_user_choice():
@@ -564,6 +664,9 @@ if __name__ == "__main__":
     test_behavior_summary_positive_events_only()
     test_suggestion_card_renders_explicit_confirmation_without_scores()
     test_cached_library_link_enriches_and_renders_quote()
+    test_cached_link_without_record_id_falls_back_to_deeplink()
+    test_cached_link_with_record_id_but_no_quote_links_without_fragment()
+    test_cached_link_empty_dict_renders_nothing()
     test_attention_card_renders_user_choice()
     test_breaking_card_renders_action()
     test_signal_freshness_daily_window()

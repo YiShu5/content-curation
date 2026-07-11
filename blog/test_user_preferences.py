@@ -52,7 +52,7 @@ def test_behavior_summary_covers_frontend_events():
 def test_config_preferences_include_actual_positive_events():
     profile = prefs.load_profile()
     weights = (profile.get("learning") or {}).get("event_weights") or {}
-    for key in ["card", "open_attention", "open_news", "watch_video", "open_breaking", "open_local", "promote_attention", "deep_library"]:
+    for key in ["card", "open_attention", "open_news", "watch_video", "open_breaking", "open_local", "open_origin", "promote_attention", "deep_library"]:
         assert float(weights.get(key, 0)) > 0, key
     assert float(weights.get("dismiss_attention", 0) or 0) == 0
     print("✓ config preferences include actual positive events")

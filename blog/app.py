@@ -2,6 +2,7 @@
 内容策展博客 - 以本地 archive 为真相源的个人博客
 """
 
+import hashlib
 import json
 import html
 import time
@@ -40,6 +41,16 @@ def _strip_markdown(text):
     t = _re.sub(r'\n', ' ', t)
     return t.strip()
 
+def _quote_anchor(quote):
+    """金句锚点 id：归一化文本的短 hash。信号链接与详情页两端用同一 filter
+    计算，文本一致即命中；不按 index 定位（金句会被 select-quotes 重排、
+    rescore 重建，index 含义会漂移）。"""
+    import today_signal
+    norm = today_signal._quote_text(quote)
+    if not norm:
+        return ""
+    return "q-" + hashlib.sha1(norm.encode("utf-8")).hexdigest()[:8]
+
 # 优先加载项目根目录的 config/.env（开发环境无需手动设置系统变量）
 _env_path = Path(__file__).parent.parent / "config" / ".env"
 if _env_path.exists():
@@ -56,6 +67,7 @@ app = Flask(__name__)
 app.config.from_object(Config)
 app.jinja_env.filters['markdown'] = _render_markdown
 app.jinja_env.filters['strip_md'] = _strip_markdown
+app.jinja_env.filters['quote_anchor'] = _quote_anchor
 
 
 # ── 本地 archive 作为真相源（不依赖飞书）─────────────────────────────────────
