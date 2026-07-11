@@ -418,6 +418,37 @@ def quote_card(record_id):
     return send_file(out, max_age=0)
 
 
+def _daily_card_key(cached):
+    """日卡缓存键：generated_at + 信号/breaking 的 item_id 摘要。
+    只用 generated_at 不够——手动 promote 会改 signals 但不改生成时间，
+    纯时间键会把 promote 前的旧卡分享出去。"""
+    gen = str(cached.get("generated_at") or "")
+    sig_ids = ",".join(str(s.get("item_id") or "") if isinstance(s, dict) else ""
+                       for s in (cached.get("signals") or []))
+    brk = str(((cached.get("breaking") or {}) or {}).get("item_id") or "")
+    return hashlib.sha1(f"{gen}|{brk}|{sig_ids}".encode("utf-8")).hexdigest()[:8]
+
+
+@app.route("/signal-card.png")
+def signal_card():
+    """今日 AI 判断日卡：横版 1920×1080，同事扫一眼等于看完当天判断。
+    缓存按内容键（一天正常只渲一次）；过期缓存照常出卡（用户可能晚发），
+    卡上日期如实标注。"""
+    import today_signal
+    cached = today_signal.read_signal_cache()
+    if not cached or not (cached.get("signals") or cached.get("breaking")):
+        abort(404)
+    import text_card
+    gen = str(cached.get("generated_at") or "")
+    out = Path(__file__).parent / "data" / "quote_cards" / f"dailycard-{_daily_card_key(cached)}.png"
+    if not out.exists():
+        ok, err_msg = text_card.render_daily_card(cached, out, date_str=gen[:10])
+        if not ok:
+            print(f"[WARN] 今日卡渲染失败: {err_msg}")
+            abort(503)
+    return send_file(out, max_age=0)
+
+
 # ── 启动 ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5055)

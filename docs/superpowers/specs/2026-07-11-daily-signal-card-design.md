@@ -19,8 +19,9 @@
 
 - `_signals.html` 面板头部动作区加「分享今日卡」按钮 → 弹层（独立 id `sc-modal`，
   与详情页 qc-modal 互不干扰）→ 预览 + 下载 PNG + 复制文字版。
-- 文字版在模板端用 Jinja 拼好放 `data-copy`（头行 + breaking + 每条
-  「▍栏目｜标题 / 总结 / → why」），复制走与金句卡相同的 clipboard+execCommand 降级。
+- 文字版数据经 `<script type="application/json">` 块（tojson 转义防标签闭合注入）
+  传给 JS 拼纯文本（头行 + breaking + 每条「▍栏目｜标题 / 总结 / → why」），
+  复制走与金句卡相同的 clipboard+execCommand 降级。
 - 埋点：复用 kind=`share_card`，source=`signals`（区分于详情页的 source=detail，
   event_weights 无需改动）。
 
@@ -30,7 +31,8 @@
   新增 `daily_card_html(payload, date_str)` 与 `render_daily_card(payload, out_png)`；
   金句卡沿用 1280×720，日卡 1920×1080。
 - 路由 `GET /signal-card.png`：读 `today_signal.read_signal_cache()`，
-  无缓存或空信号 404；缓存键 = generated_at 的 hash（一天只渲一次），
+  无缓存或空信号 404；缓存键 = generated_at + 信号/breaking item_id 摘要的 hash
+  （一天正常只渲一次；手动 promote 改变 signals 时键随之失效，不出旧卡），
   产物存 `blog/data/quote_cards/dailycard-*.png`；`max_age=0`。
 - 过期缓存（昨天的信号）照常出卡——用户可能晚发，卡上日期如实标注。
 

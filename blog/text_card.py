@@ -119,29 +119,29 @@ html,body{{margin:0}}
 </div>"""
 
 
-def run_chrome_screenshot(html_path, out_png, chrome_path=None, timeout=CHROME_TIMEOUT):
+def run_chrome_screenshot(html_path, out_png, chrome_path=None, timeout=CHROME_TIMEOUT,
+                          size=(CARD_W, CARD_H)):
     """headless Chrome 截图。返回 CompletedProcess 形对象；Chrome 缺失抛 FileNotFoundError。"""
     chrome = Path(chrome_path or CHROME)
     if not chrome.exists():
         raise FileNotFoundError(f"未找到 Chrome（{chrome}），无法渲染金句卡")
     return subprocess.run(
         [str(chrome), "--headless=new", "--disable-gpu", "--hide-scrollbars",
-         "--force-device-scale-factor=1", f"--window-size={CARD_W},{CARD_H}",
+         "--force-device-scale-factor=1", f"--window-size={size[0]},{size[1]}",
          "--virtual-time-budget=2500", f"--screenshot={out_png}",
          f"file://{html_path}"],
         capture_output=True, text=True, timeout=timeout)
 
 
-def render_text_card(text, name, role, title, platform, out_png):
-    """渲染文字金句卡到 out_png。返回 (ok, err_msg)——服务端用，不 sys.exit。"""
+def _render_html_to_png(html_str, out_png, size):
+    """把 HTML 渲染成 PNG。返回 (ok, err_msg)——服务端用，不 sys.exit。"""
     out_png = Path(out_png)
     out_png.parent.mkdir(parents=True, exist_ok=True)
     out_png.unlink(missing_ok=True)  # 先清旧产物，避免残留掩盖本次失败
     html_path = out_png.with_suffix(".html")
-    html_path.write_text(text_card_html(text, name, role, title, platform),
-                         encoding="utf-8")
+    html_path.write_text(html_str, encoding="utf-8")
     try:
-        r = run_chrome_screenshot(html_path.resolve(), out_png)
+        r = run_chrome_screenshot(html_path.resolve(), out_png, size=size)
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
         out_png.unlink(missing_ok=True)
         return False, str(e)
@@ -150,3 +150,87 @@ def render_text_card(text, name, role, title, platform, out_png):
         return False, (getattr(r, "stderr", "") or "")[-500:] or "Chrome 渲染失败"
     html_path.unlink(missing_ok=True)  # 失败时留 html 排查，成功即清
     return True, ""
+
+
+def render_text_card(text, name, role, title, platform, out_png):
+    """渲染文字金句卡（1280×720）。返回 (ok, err_msg)。"""
+    return _render_html_to_png(text_card_html(text, name, role, title, platform),
+                               out_png, (CARD_W, CARD_H))
+
+
+# ── 今日 AI 判断日卡（1920×1080 横版，三栏并排 + breaking 顶条）────────────────
+DAILY_W, DAILY_H = 1920, 1080
+
+
+def daily_card_html(payload, date_str=""):
+    """今日判断日卡 HTML。payload = today_signal 缓存（breaking + signals）。
+    同事扫一眼等于看完当天判断——每栏只放 栏目/标题/一句总结/why。全字段转义。"""
+    breaking = payload.get("breaking") or None
+    signals = (payload.get("signals") or [])[:3]
+    date = html.escape(date_str or str(payload.get("generated_at") or "")[:10])
+
+    def col(s):
+        label = html.escape(s.get("slot_label") or "")
+        title = html.escape(s.get("title") or "")
+        summary = html.escape(s.get("summary") or "")
+        why = html.escape(s.get("why") or "")
+        why_html = f'<div class=why><span>为什么值得看</span>{why}</div>' if why else ""
+        return (f'<div class=col><div class=slot>{label}</div>'
+                f'<div class=title>{title}</div>'
+                f'<div class=sum>{summary}</div>{why_html}</div>')
+
+    breaking_html = ""
+    if breaking:
+        b_title = html.escape(breaking.get("title") or "")
+        b_sum = html.escape(breaking.get("summary") or "")
+        b_action = html.escape(breaking.get("action") or "")
+        chip = f'<span class=chip>{b_action}</span>' if b_action else ""
+        breaking_html = (f'<div class=brk><span class=brklabel>顶级大新闻</span>'
+                         f'<div class=brkbody><div class=brktitle>{b_title}{chip}</div>'
+                         f'<div class=brksum>{b_sum}</div></div></div>')
+
+    cols = "".join(col(s) for s in signals) or '<div class=col><div class=sum>今日无入选判断。</div></div>'
+    return f"""<!doctype html><meta charset=utf-8><style>
+html,body{{margin:0}}
+.stage{{width:{DAILY_W}px;height:{DAILY_H}px;position:relative;overflow:hidden;box-sizing:border-box;
+  padding:64px 80px 56px;display:flex;flex-direction:column;
+  background:radial-gradient(1400px 900px at 92% -12%,rgba(184,95,66,.35),transparent 55%),
+             radial-gradient(1000px 800px at -10% 112%,rgba(184,95,66,.2),transparent 50%),
+             linear-gradient(160deg,#191925 0%,#10101a 60%,#0b0b12 100%);
+  font-family:"PingFang SC","Helvetica Neue",sans-serif;color:#fff}}
+.head{{display:flex;align-items:baseline;gap:18px;margin-bottom:34px}}
+.brand{{font-size:26px;font-weight:800;color:rgba(235,227,215,.85)}}
+.htitle{{font-size:40px;font-weight:800}}
+.hdate{{margin-left:auto;font-size:24px;color:rgba(235,227,215,.5)}}
+.brk{{display:flex;gap:22px;align-items:flex-start;background:rgba(184,95,66,.14);
+  border:1px solid rgba(184,95,66,.35);border-radius:16px;padding:22px 28px;margin-bottom:30px}}
+.brklabel{{flex-shrink:0;font-size:20px;font-weight:800;color:#E8A188;
+  border:1px solid rgba(232,161,136,.5);border-radius:10px;padding:4px 12px}}
+.brktitle{{font-size:28px;font-weight:700;line-height:1.35}}
+.chip{{display:inline-block;margin-left:14px;font-size:18px;font-weight:700;color:#0b0b12;
+  background:#E8A188;border-radius:9px;padding:2px 12px;vertical-align:middle}}
+.brksum{{margin-top:8px;font-size:21px;line-height:1.5;color:rgba(235,227,215,.75)}}
+.cols{{display:flex;gap:36px;flex:1;min-height:0}}
+.col{{flex:1;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.08);
+  border-radius:18px;padding:30px 30px 26px;display:flex;flex-direction:column;overflow:hidden}}
+.slot{{font-size:19px;font-weight:800;color:#E8A188;letter-spacing:1px;margin-bottom:16px}}
+.title{{font-size:30px;font-weight:700;line-height:1.4;margin-bottom:16px}}
+.sum{{font-size:22px;line-height:1.6;color:rgba(255,255,255,.86)}}
+.why{{margin-top:auto;padding-top:18px;font-size:20px;line-height:1.55;color:rgba(235,227,215,.62)}}
+.why span{{display:block;font-size:16px;font-weight:800;color:rgba(232,161,136,.7);
+  letter-spacing:1px;margin-bottom:6px}}
+.foot{{margin-top:28px;font-size:19px;color:rgba(235,227,215,.4)}}
+</style>
+<div class=stage>
+  <div class=head><span class=brand>降噪 NoiseFilter</span>
+    <span class=htitle>今日 AI 判断</span><span class=hdate>{date}</span></div>
+  {breaking_html}
+  <div class=cols>{cols}</div>
+  <div class=foot>每条只回答：值不值得继续看 · 降噪 NoiseFilter</div>
+</div>"""
+
+
+def render_daily_card(payload, out_png, date_str=""):
+    """渲染今日判断日卡（1920×1080）。返回 (ok, err_msg)。"""
+    return _render_html_to_png(daily_card_html(payload, date_str),
+                               out_png, (DAILY_W, DAILY_H))

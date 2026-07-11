@@ -93,9 +93,33 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
         </div>
         <div class="signals-head-actions">
             <span class="signals-note">每条只回答：值不值得继续看</span>
+            {% if signals or breaking %}
+            <button class="signals-share-btn" id="signalsShareBtn" type="button">分享今日卡</button>
+            {% endif %}
             <button class="signals-collapse" id="signalsCollapse" type="button" aria-expanded="true">收起</button>
         </div>
     </div>
+
+    {% if signals or breaking %}
+    {# 今日卡「复制文字版」的数据源；JS 读取后拼纯文本 #}
+    <script type="application/json" id="sc-copy-data">{{ {
+        "generated_at": signal_meta.generated_at or "",
+        "breaking": breaking,
+        "signals": signals
+    } | tojson }}</script>
+    <div class="qc-modal sc-modal" id="sc-modal" hidden>
+        <div class="qc-backdrop"></div>
+        <div class="qc-panel qc-panel-wide">
+            <div class="qc-status" id="sc-status">生成中…</div>
+            <img id="sc-img" alt="今日 AI 判断日卡" hidden>
+            <div class="qc-actions">
+                <a id="sc-download" class="qc-btn" href="/signal-card.png" download="daily-signal.png">下载 PNG</a>
+                <button id="sc-copy" class="qc-btn" type="button">复制文字版</button>
+                <button id="sc-close" class="qc-btn" type="button">关闭</button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 
     {% if signal_meta.freshness and signal_meta.freshness.status in ['expired', 'missing', 'invalid'] %}
     <div class="signals-state signals-state-{{ signal_meta.freshness.status }}">
@@ -371,6 +395,62 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
                     });
             });
         });
+
+        // 今日卡：分享按钮 → 弹层预览（后端按 generated_at 缓存渲染）+ 下载/复制文字版
+        var shareBtn = document.getElementById('signalsShareBtn');
+        var scModal = document.getElementById('sc-modal');
+        if (shareBtn && scModal) {
+            var scImg = document.getElementById('sc-img');
+            var scStatus = document.getElementById('sc-status');
+            var scCopyText = '';
+            try {
+                var d = JSON.parse(document.getElementById('sc-copy-data').textContent);
+                var parts = ['降噪 · 今日 AI 判断 · ' + (d.generated_at || '')];
+                if (d.breaking) {
+                    parts.push('🔴 ' + (d.breaking.title || '') +
+                        (d.breaking.action ? '（' + d.breaking.action + '）' : '') +
+                        '\n' + (d.breaking.summary || ''));
+                }
+                (d.signals || []).forEach(function (s) {
+                    parts.push('▍' + (s.slot_label || '') + '｜' + (s.title || '') +
+                        '\n' + (s.summary || '') +
+                        (s.why ? '\n→ ' + s.why : ''));
+                });
+                scCopyText = parts.join('\n\n');
+            } catch (e) { /* 数据缺失时复制按钮退化为空文本 */ }
+
+            shareBtn.addEventListener('click', function () {
+                scStatus.textContent = '生成中…';
+                scStatus.hidden = false;
+                scImg.hidden = true;
+                scImg.removeAttribute('src');
+                scModal.hidden = false;
+                scImg.onload = function () { scStatus.hidden = true; scImg.hidden = false; };
+                scImg.onerror = function () { scStatus.textContent = '生成失败，稍后重试'; };
+                scImg.src = '/signal-card.png';
+                track({ kind: 'share_card', label: '今日卡', href: '/signal-card.png',
+                        slot: '', source: 'signals', item_id: '' });
+            });
+            document.getElementById('sc-copy').addEventListener('click', function () {
+                var btn = this;
+                function done() {
+                    btn.textContent = '已复制 ✓';
+                    setTimeout(function () { btn.textContent = '复制文字版'; }, 1500);
+                }
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(scCopyText).then(done);
+                } else {
+                    var ta = document.createElement('textarea');
+                    ta.value = scCopyText;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    try { document.execCommand('copy'); done(); } catch (e) { /* 忽略 */ }
+                    ta.remove();
+                }
+            });
+            document.getElementById('sc-close').addEventListener('click', function () { scModal.hidden = true; });
+            scModal.querySelector('.qc-backdrop').addEventListener('click', function () { scModal.hidden = true; });
+        }
     })();
     </script>
 </section>
