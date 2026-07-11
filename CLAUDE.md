@@ -27,6 +27,10 @@
 - 重打分用 `scripts/rescore.py`（从已有摘要重算，不重跑整条流水线）。
 - ⚠️ `sync-feishu.js` 只**新建**记录、不更新已有；重跑生成的 archive 其 `feishu_record_id` 为 null，直接 sync 会产生重复记录。
 
+## 去重与清理（2026-07）
+- fetch.py 建目录前按 id 的 sha1 后缀复用既有归档（`resolve_archive_dir`），同一视频不再因日期/标题漂移每天新建目录；复用目录里的有效转录直接复用，失败时**不 rmtree**（只清理本次新建的空壳）。
+- 存量重复目录用 `scripts/cleanup_dup_archives.py` 清理：默认 dry-run，`--apply` 把冗余份**移动**到 `archive/_duplicates_quarantine/`（绝不删除，转录是付费资产）。
+
 ## 转录
 - BibiGPT 为主（按**时长**计费，注意余额），baoyu 免费降级**仅支持 YouTube**。
 - 小红书/online-media 的字幕在 `detail.subtitlesArray`（fetch.py 已处理）。

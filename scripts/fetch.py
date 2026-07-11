@@ -455,14 +455,73 @@ def format_duration(seconds: int) -> str:
     return f"{m}:{s:02d}"
 
 
-def make_archive_dir(upload_date: str, title: str, item_id: str) -> Path:
+def make_archive_dir(upload_date: str, title: str, item_id: str) -> tuple[Path, bool]:
+    """返回 (目录, 是否本次新建)。created 决定失败时能否 rmtree——
+    mkdir(exist_ok=True) 可能落到既有目录（同日同名重跑、metadata 损坏
+    未被 resolve 认领），这种目录不算本次新建、不可当空壳清理。"""
     date_str = upload_date[:8] if len(upload_date) >= 8 else datetime.datetime.now().strftime("%Y%m%d")
     # Include a stable id suffix to avoid collisions on same-day duplicate/truncated titles.
     unique_suffix = hashlib.sha1(item_id.encode("utf-8")).hexdigest()[:8]
     folder_name = f"{date_str}-{sanitize_title(title)}-{unique_suffix}"
     path = ARCHIVE_DIR / folder_name
+    created = not path.exists()
     path.mkdir(parents=True, exist_ok=True)
-    return path
+    return path, created
+
+
+def resolve_archive_dir(archive_root: Path, item_id: str) -> Path | None:
+    """按 id 的 sha1 后缀查找既有归档目录，找到即复用、不再新建。
+
+    同一视频的 upload_date/title 会随抓取来源漂移（flat entry 常缺日期，
+    目录名落到当天日期），历史上导致同一 id 每天新建一个目录。目录名
+    后缀只依赖 id，据此聚合；metadata 的 id 必须与 item_id 相等（防
+    后缀撞车）。多个命中时优先 rewrite_complete=True，其次目录名最新。
+    空 id 或无命中返回 None（走原新建逻辑）。"""
+    if not item_id:
+        return None
+    suffix = hashlib.sha1(item_id.encode("utf-8")).hexdigest()[:8]
+    candidates = []
+    for d in Path(archive_root).glob(f"*-{suffix}"):
+        if not d.is_dir():
+            continue
+        try:
+            meta = json.loads((d / "metadata.json").read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if str(meta.get("id") or "") != str(item_id):
+            continue
+        candidates.append((bool(meta.get("rewrite_complete")), d.name, d))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    return candidates[0][2]
+
+
+def read_existing_transcript(archive_dir: Path) -> tuple[str, str]:
+    """读取复用目录里已有的有效转录正文，返回 (正文, 来源)。
+
+    转录是最贵资产（BibiGPT 按时长计费）——复用目录时若已有有效转录，
+    直接用正文、完全跳过转录链。失败标记/空正文视为无效，返回 ("", "")。"""
+    tp = archive_dir / "transcript.md"
+    if not tp.exists():
+        return "", ""
+    try:
+        raw = tp.read_text(encoding="utf-8")
+    except Exception:
+        return "", ""
+    body, source = raw, ""
+    if raw.startswith("---"):
+        end = raw.find("\n---", 3)
+        if end != -1:
+            header = raw[3:end]
+            m = re.search(r"^transcript_source:\s*(\S+)", header, re.MULTILINE)
+            if m:
+                source = m.group(1)
+            body = raw[end + 4:]
+    body = body.strip()
+    if not body or body.startswith("[转录获取失败") or body.startswith("[无可用转录"):
+        return "", ""
+    return body, (source if source and source != "none" else "existing")
 
 
 def download_thumbnail(url: str, dest: Path) -> bool:
@@ -495,8 +554,14 @@ def process_item(item: VideoItem) -> bool | None:
     """处理单个内容项，返回 True=完全成功, False=异常失败, None=转录失败可重试"""
     print(f"\n处理: {item.title[:60]}")
     try:
-        # 1. 创建归档目录
-        archive_dir = make_archive_dir(item.upload_date, item.title, item.id)
+        # 1. 归档目录：先按 id 复用既有目录（防同一内容重复建目录），无命中才新建
+        reused_dir = resolve_archive_dir(ARCHIVE_DIR, item.id)
+        if reused_dir is not None:
+            archive_dir = reused_dir
+            dir_created = False
+            print(f"  [复用] 已有归档目录: {archive_dir.name}")
+        else:
+            archive_dir, dir_created = make_archive_dir(item.upload_date, item.title, item.id)
         meta_path = archive_dir / "metadata.json"
         if meta_path.exists():
             existing = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -508,9 +573,17 @@ def process_item(item: VideoItem) -> bool | None:
         transcript = ""
         transcript_source = ""
         transcript_error = ""
+        transcript_reused = False
+
+        # 复用目录里已有的有效转录：直接用正文，跳过整条转录链（避免 BibiGPT 复费）
+        if not dir_created:
+            transcript, transcript_source = read_existing_transcript(archive_dir)
+            if transcript:
+                transcript_reused = True
+                print(f"  [复用] 已有转录 ({len(transcript)} 字符, 来源: {transcript_source})")
 
         # 免费方案（仅 YouTube 可用）：baoyu → youtube-transcript-api
-        if item.platform == "youtube":
+        if not transcript and item.platform == "youtube":
             try:
                 print("  [免费1] baoyu-youtube-transcript ...")
                 transcript = get_transcript_baoyu(item.url, archive_dir)
@@ -569,16 +642,33 @@ transcript_source: {transcript_source or 'none'}
             transcript_content += f"[转录获取失败: {transcript_error}]"
         else:
             transcript_content += "[无可用转录]"
-        transcript_path.write_text(transcript_content, encoding="utf-8")
+        if not transcript_reused:
+            # 复用的转录不重写文件：原 front-matter（真实抓取日期/来源）比
+            # flat entry 的漂移信息更可信，且保证复用目录字节不变
+            transcript_path.write_text(transcript_content, encoding="utf-8")
 
-        # 4. 下载封面
+        # 4. 下载封面（复用目录已有封面时跳过）
         cover_path = archive_dir / "cover.jpg"
-        download_thumbnail(item.thumbnail_url, cover_path)
+        if dir_created or not any(archive_dir.glob("cover.*")):
+            download_thumbnail(item.thumbnail_url, cover_path)
 
         # 5. 写 metadata.json
         meta = {
             **asdict(item),
             "archive_dir": str(archive_dir),
+        }
+        if not dir_created and meta_path.exists():
+            # flat entry 的元信息常缺失/漂移（upload_date 为空、标题变体、uploader
+            # 「未知」）；复用目录时，既有 metadata 里的有效值比新 item 的空值可信
+            try:
+                prev = json.loads(meta_path.read_text(encoding="utf-8"))
+                for k in ("upload_date", "title", "uploader", "thumbnail_url", "description"):
+                    prev_v, new_v = prev.get(k), meta.get(k)
+                    if prev_v and prev_v != "None" and (not new_v or new_v in ("None", "未知")):
+                        meta[k] = prev_v
+            except Exception:
+                pass
+        meta.update({
             "processed_at": datetime.datetime.utcnow().isoformat() + "Z",
             "transcript_available": bool(transcript),
             "transcript_source": transcript_source,
@@ -588,7 +678,7 @@ transcript_source: {transcript_source or 'none'}
             "feishu_doc_synced": False,
             "feishu_doc_id": None,
             "feishu_doc_url": None,
-        }
+        })
         meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
         # 6. 调用 rewrite.js
@@ -607,12 +697,19 @@ transcript_source: {transcript_source or 'none'}
                 print(f"  [WARN] rewrite.js 失败 (exit {result.returncode})")
                 if result.stderr:
                     print(f"       {result.stderr[:300]}")
-                shutil.rmtree(archive_dir, ignore_errors=True)  # 改写失败也清空壳
+                # 只删本次新建的空壳；复用目录含既有转录等付费资产，失败时原样保留
+                if dir_created:
+                    shutil.rmtree(archive_dir, ignore_errors=True)
+                else:
+                    print("  [保留] 复用目录不删除（含既有资产，下次可重试）")
                 return False
         else:
             print("  [跳过] 无转录文本，跳过 AI 改写")
-            shutil.rmtree(archive_dir, ignore_errors=True)  # 清理空壳，不留垃圾目录
-            print("  [清理] 已删除未完成目录（下次可重试）")
+            if dir_created:
+                shutil.rmtree(archive_dir, ignore_errors=True)  # 清理空壳，不留垃圾目录
+                print("  [清理] 已删除未完成目录（下次可重试）")
+            else:
+                print("  [保留] 复用目录不删除（下次可重试）")
             return None  # 转录失败，不写入 state，下次可重试
 
         return True
