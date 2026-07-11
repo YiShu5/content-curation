@@ -17,7 +17,7 @@
 - 记录 `id` = metadata 的 `id`（视频 id / audio-xxx）；详情页 `/article/<id>`、向量索引、今日信号都按这个 id 对齐。
 - 封面走本地：`/cover-local/<archive_dir>` 直接发 archive 里的 cover.*。
 - ⚠️ 改完 fetch 新内容后，**首页/详情立刻可见(实时读 archive)，但语义搜索/相关推荐/今日信号要 `run.sh embed` 重建索引才会纳入**。
-- 旧的飞书读取链路（`fetch_records`/`_enrich_from_local`/`_build_local_index`/`cover_proxy`）保留为 legacy，未删但已不被路由调用。
+- 旧的飞书读取链路（`fetch_records`/`_enrich_from_local`/`_build_local_index`/`cover_proxy`）已于 2026-07 删除（git 历史可查）；飞书仅剩 `scripts/sync-feishu*.js` 的写出方向。
 - 「今日必读」优先关联库内深度内容；库内无匹配时，生成两个 YouTube 搜索词并用互补性重排，只展示 ≥75 分的一个视频，用户二次确认后才入库。
 - YouTube 搜索前的 CLI 探活改编自 Agent-Reach（MIT），来源与许可见 `THIRD_PARTY_NOTICES.md`。
 
