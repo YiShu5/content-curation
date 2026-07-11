@@ -234,11 +234,12 @@ def locate_quote(archive_dir, text):
 
 
 def find_cached_video(video_id):
-    """探测 video_cache 里的整片缓存：glob {id}.*，排除 yt-dlp 的 .part 临时文件
-    （下载中断的残留不算有效缓存）；多命中取排序第一；0 字节视为无效。"""
+    """探测 video_cache 里的整片缓存：glob {id}.*，排除 yt-dlp 的下载中间产物
+    （.part 临时文件、.ytdl 控制文件、.part-FragN 分片残留——中断残留不算有效
+    缓存，也不删除以保留续传进度）；多命中取排序第一；0 字节视为无效。"""
     cache = Path(VIDEO_CACHE_DIR)
     hits = sorted(p for p in cache.glob(f"{video_id}.*")
-                  if not p.name.endswith(".part"))
+                  if ".part" not in p.name and p.suffix != ".ytdl")
     if not hits:
         return None
     first = hits[0]
@@ -391,8 +392,11 @@ def build_parser():
 
 def main(argv=None):
     a = build_parser().parse_args(argv)
-    if a.cookies_from_browser:
-        YT_DLP_EXTRA_ARGS[:] = ["--cookies-from-browser", a.cookies_from_browser]
+    # 每次调用重置（同进程多次调 main 时不跨调用泄漏 cookies 参数）
+    YT_DLP_EXTRA_ARGS[:] = (
+        ["--cookies-from-browser", a.cookies_from_browser]
+        if a.cookies_from_browser else []
+    )
 
     # 1) 解析记录目录 + metadata
     if a.dir and a.record_id:

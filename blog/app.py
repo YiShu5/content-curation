@@ -52,17 +52,22 @@ def _quote_anchor(quote):
         if not norm:
             return ""
         return "q-" + hashlib.sha1(norm.encode("utf-8")).hexdigest()[:8]
-    except Exception:
+    except Exception as e:
+        app.logger.warning(f"quote_anchor 降级为空锚点: {e}")
         return ""
 
 
 def _quote_display(quote):
-    """金句展示文本：dict 形态取正文，其余原样。异常时退回 str。"""
+    """金句展示文本：dict 形态取正文；取不到正文时返回空串，绝不渲染 repr。"""
     try:
         import today_signal
-        return today_signal.quote_text(quote) or str(quote or "")
-    except Exception:
-        return str(quote or "")
+        text = today_signal.quote_text(quote)
+    except Exception as e:
+        app.logger.warning(f"quote_display 归一化失败: {e}")
+        text = ""
+    if text:
+        return text
+    return "" if isinstance(quote, dict) else str(quote or "")
 
 # 优先加载项目根目录的 config/.env（开发环境无需手动设置系统变量）
 _env_path = Path(__file__).parent.parent / "config" / ".env"
