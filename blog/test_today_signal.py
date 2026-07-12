@@ -4,10 +4,12 @@
 """
 
 import json
+import os
 import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -170,6 +172,225 @@ def test_priority_model_research_overrides_generic_industry_trend():
     assert ensured[0]["title"] == "语言模型中的全局工作空间"
     assert ensured[0]["priority_label"] == "模型内部机制与可解释性"
     print("✓ 官方模型机制研究会替换普通行业趋势")
+
+
+def test_generate_signals_builds_trustworthy_disjoint_event_draft():
+    news = [
+        {
+            "id": "duplicate",
+            "title": "Duplicate tracking variant",
+            "url": "https://official.ai/release",
+            "source": "Official",
+            "summary": "同一发布的重复条目。",
+            "score": 110,
+        },
+        {
+            "id": "official",
+            "title": "Official release",
+            "url": "https://official.ai/release?utm_source=feed",
+            "source": "Official",
+            "summary": "官方发布了新模型。",
+            "score": 100,
+            "is_primary": True,
+        },
+        {
+            "id": "analysis",
+            "title": "Independent analysis",
+            "url": "https://media.test/analysis",
+            "source": "Media",
+            "summary": "媒体分析了新模型。",
+            "score": 90,
+        },
+        {
+            "id": "second",
+            "title": "Second event",
+            "url": "https://second.test/news",
+            "source": "Second",
+            "summary": "第二件事发生了。",
+            "score": 85,
+        },
+        {
+            "id": "third",
+            "title": "Third event",
+            "url": "https://third.test/news",
+            "source": "Third",
+            "summary": "第三件事发生了。",
+            "score": 75,
+        },
+        {
+            "id": "fourth",
+            "title": "Fourth event",
+            "url": "https://fourth.test/news",
+            "source": "Fourth",
+            "summary": "第四件事发生了。",
+            "score": 65,
+        },
+        {
+            "id": "fifth",
+            "title": "Fifth event",
+            "url": "https://fifth.test/news",
+            "source": "Fifth",
+            "summary": "第五件事发生了。",
+            "score": 55,
+        },
+    ]
+    profile = {
+        "editorial_rules": {"window_hours": 48},
+        "daily_brief": {"max_topics": 3},
+    }
+    prompts = []
+    read_urls = []
+    match_used_sets = []
+    suggested_titles = []
+
+    def fake_chat(prompt, temperature=0.2):
+        prompts.append(prompt)
+        if prompt.startswith("你是极度克制的 AI 资讯编辑"):
+            return {"clusters": [
+                {"member_indices": [1, 2]},
+                {"member_indices": [1]},
+                {"member_indices": [3]},
+                {"member_indices": [4]},
+                {"member_indices": [5]},
+                {"member_indices": [6]},
+            ]}
+        return {"topics": [
+            {
+                "cluster_index": 1,
+                "source_count": 99,
+                "category": "模型发布",
+                "title": "新模型正式发布",
+                "what_happened": "官方发布了新模型。",
+                "discussion_focus": ["真实体验", "价格"],
+                "why_ranked": "它会影响近期模型选择。",
+                "missing_angle": "真实使用边界",
+                "video_queries": ["new model real world evaluation"],
+            },
+            {
+                "cluster_index": 2,
+                "category": "产品变化",
+                "title": "第二个事件",
+                "what_happened": "第二件事发生了。",
+                "discussion_focus": [],
+                "why_ranked": "它会影响开发工作。",
+                "missing_angle": "实践方法",
+                "video_queries": ["second event practice"],
+            },
+        ]}
+
+    def fake_read(url):
+        read_urls.append(url)
+        return {"readable": True, "method": "test", "text": f"{url} original"}
+
+    def fake_match(signal, library, used_record_ids):
+        assert library == "library"
+        match_used_sets.append(id(used_record_ids))
+        if not used_record_ids:
+            used_record_ids.add("library-one")
+            return [{"record_id": "library-one", "title": "库内补充"}]
+        assert used_record_ids == {"library-one"}
+        return []
+
+    def fake_suggest(signal, used_ids):
+        suggested_titles.append(signal["title"])
+        return {"id": "video-one", "match_score": 88, "title": "互补视频"}
+
+    patched = {
+        "fetch_aihot": ts.fetch_aihot,
+        "load_profile": ts.load_profile,
+        "_chat_json": ts._chat_json,
+        "read_original": ts.read_original,
+        "_prepare_library": ts._prepare_library,
+        "_match_library": ts._match_library,
+        "_existing_video_ids": ts._existing_video_ids,
+        "suggest_video": ts.suggest_video,
+        "behavior_summary": ts.behavior_summary,
+        "_write_signal_cache": ts._write_signal_cache,
+    }
+    old_time = ts.time.time
+    old_timezone = os.environ.get("BLOG_TIMEZONE")
+    configured_tz = ZoneInfo("Asia/Shanghai")
+    fixed_now = datetime(
+        2026, 7, 11, 0, 30, tzinfo=configured_tz
+    ).timestamp()
+    try:
+        os.environ["BLOG_TIMEZONE"] = configured_tz.key
+        ts.fetch_aihot = lambda hours=48: news
+        ts.load_profile = lambda: profile
+        ts._chat_json = fake_chat
+        ts.read_original = fake_read
+        ts._prepare_library = lambda records: "library"
+        ts._match_library = fake_match
+        ts._existing_video_ids = lambda: set()
+        ts.suggest_video = fake_suggest
+        ts.behavior_summary = lambda current_profile: {}
+        ts._write_signal_cache = lambda payload: payload
+        ts.time.time = lambda: fixed_now
+        cache = ts.generate_signals([{"id": "library-one"}])
+    finally:
+        for name, value in patched.items():
+            setattr(ts, name, value)
+        ts.time.time = old_time
+        if old_timezone is None:
+            os.environ.pop("BLOG_TIMEZONE", None)
+        else:
+            os.environ["BLOG_TIMEZONE"] = old_timezone
+
+    draft = cache["daily_draft"]
+    assert draft["draft_date"] == "2026-07-11"
+    assert draft["generated_at"] == "2026-07-11 00:30"
+    assert len(draft["topics"]) <= 3
+    assert [topic["rank"] for topic in draft["topics"]] == list(
+        range(1, len(draft["topics"]) + 1)
+    )
+    assert draft["topics"][0]["independent_source_count"] == len(
+        draft["topics"][0]["sources"]
+    ) == 2
+    assert all(
+        any(source["verification_status"] == "readable" for source in topic["sources"])
+        for topic in draft["topics"]
+    )
+    assert {
+        source["verification_status"]
+        for source in draft["topics"][0]["sources"]
+    } == {"readable", "unchecked"}
+    top_source_ids = {
+        source["source_id"]
+        for topic in draft["topics"]
+        for source in topic["sources"]
+    }
+    other_source_ids = {
+        source["source_id"]
+        for group in ("candidates", "attention")
+        for topic in draft[group]
+        for source in topic["sources"]
+    }
+    top_urls = {
+        source["canonical_url"]
+        for topic in draft["topics"]
+        for source in topic["sources"]
+    }
+    other_urls = {
+        source["canonical_url"]
+        for group in ("candidates", "attention")
+        for topic in draft[group]
+        for source in topic["sources"]
+    }
+    assert top_source_ids.isdisjoint(other_source_ids)
+    assert top_urls.isdisjoint(other_urls)
+    assert cache["signals"] == draft["topics"]
+    assert cache["attention"] == draft["attention"]
+    assert "Duplicate tracking variant" not in prompts[0]
+    assert prompts[0].count("Official release") == 1
+    assert "https://media.test/analysis" not in read_urls
+    assert len(read_urls) == 5
+    assert len(set(match_used_sets)) == 1
+    assert draft["topics"][0]["links"]
+    assert suggested_titles == ["第二个事件"]
+    assert draft["topics"][1]["suggest"]["match_score"] == 88
+    assert len(draft["attention"]) == 2
+    assert len(draft["candidates"]) == 1
+    print("✓ 全局去重、事件聚类、可读证据与旧版补充链路保持可信")
 
 
 def test_attention_candidate_surfaces_buzzy_unselected_item():
@@ -429,16 +650,17 @@ def test_breaking_card_renders_action():
 def test_signal_freshness_daily_window():
     profile = {"delivery": {"hour": 8, "minute": 30}}
     payload = {"generated_at": "2026-07-07 08:31", "signals": []}
+    tz = ZoneInfo("America/Los_Angeles")
     fresh = ts.signal_freshness(
         payload,
-        now_ts=datetime(2026, 7, 7, 9, 0).timestamp(),
+        now_ts=datetime(2026, 7, 7, 9, 0, tzinfo=tz).timestamp(),
         profile=profile,
     )
     assert fresh["status"] == "fresh", fresh
     assert fresh["label"] == "新鲜"
     expired = ts.signal_freshness(
         payload,
-        now_ts=datetime(2026, 7, 8, 8, 31).timestamp(),
+        now_ts=datetime(2026, 7, 8, 8, 31, tzinfo=tz).timestamp(),
         profile=profile,
     )
     assert expired["status"] == "expired", expired
@@ -449,20 +671,21 @@ def test_signal_freshness_daily_window():
 def test_signal_freshness_stays_fresh_until_next_delivery_time():
     profile = {"delivery": {"hour": 8, "minute": 30}}
     payload = {"generated_at": "2026-07-07 08:31", "signals": []}
+    tz = ZoneInfo("America/Los_Angeles")
 
     next_day_early = ts.signal_freshness(
         payload,
-        now_ts=datetime(2026, 7, 8, 1, 0).timestamp(),
+        now_ts=datetime(2026, 7, 8, 1, 0, tzinfo=tz).timestamp(),
         profile=profile,
     )
     next_day_before_delivery = ts.signal_freshness(
         payload,
-        now_ts=datetime(2026, 7, 8, 8, 29).timestamp(),
+        now_ts=datetime(2026, 7, 8, 8, 29, tzinfo=tz).timestamp(),
         profile=profile,
     )
     at_next_delivery = ts.signal_freshness(
         payload,
-        now_ts=datetime(2026, 7, 8, 8, 30).timestamp(),
+        now_ts=datetime(2026, 7, 8, 8, 30, tzinfo=tz).timestamp(),
         profile=profile,
     )
 
@@ -470,6 +693,38 @@ def test_signal_freshness_stays_fresh_until_next_delivery_time():
     assert next_day_before_delivery["status"] == "fresh", next_day_before_delivery
     assert at_next_delivery["status"] == "expired", at_next_delivery
     print("✓ 今日判断在次日 8:30 前仍保持 fresh")
+
+
+def test_freshness_does_not_relabel_yesterday_draft_as_today():
+    profile = {"delivery": {"hour": 8, "minute": 30}}
+    tz = ZoneInfo("America/Los_Angeles")
+    payload = {
+        "generated_at": "2026-07-07 08:31",
+        "daily_draft": {
+            "draft_date": "2026-07-07",
+            "topics": [],
+            "candidates": [],
+            "attention": [],
+        },
+        "signals": [],
+        "attention": [],
+    }
+    fresh = ts.with_signal_freshness(
+        payload,
+        now_ts=datetime(2026, 7, 8, 8, 29, tzinfo=tz).timestamp(),
+        profile=profile,
+    )
+    expired = ts.with_signal_freshness(
+        payload,
+        now_ts=datetime(2026, 7, 8, 8, 30, tzinfo=tz).timestamp(),
+        profile=profile,
+    )
+    assert fresh["freshness"]["status"] == "fresh"
+    assert expired["freshness"]["status"] == "expired"
+    assert fresh["daily_draft"]["draft_date"] == "2026-07-07"
+    assert expired["daily_draft"]["draft_date"] == "2026-07-07"
+    assert ts._parse_generated_at(payload["generated_at"]).tzinfo == tz
+    print("✓ freshness 不会把昨日草稿冒充为今日草稿")
 
 
 def test_missing_signal_state():
@@ -550,6 +805,69 @@ def test_read_signal_cache_marks_malformed_breaking_field_invalid():
     print("✓ breaking 字段形状异常时返回显式 invalid 状态")
 
 
+def test_read_signal_cache_marks_malformed_daily_draft_invalid():
+    old_cache = ts.SIGNAL_CACHE
+    malformed = [
+        42,
+        {"topics": [], "candidates": []},
+        {"topics": 42, "candidates": [], "attention": []},
+        {"topics": [], "candidates": 42, "attention": []},
+        {"topics": [], "candidates": [], "attention": 42},
+    ]
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            for index, draft in enumerate(malformed):
+                path = Path(td) / f"malformed-draft-{index}.json"
+                path.write_text(json.dumps({
+                    "generated_at": "2026-07-07 08:31",
+                    "signals": [],
+                    "attention": [],
+                    "daily_draft": draft,
+                }), encoding="utf-8")
+                ts.SIGNAL_CACHE = path
+                cache = ts.read_signal_cache()
+                assert cache["freshness"]["status"] == "invalid", cache
+        finally:
+            ts.SIGNAL_CACHE = old_cache
+    print("✓ daily_draft 必须包含三个完整数组")
+
+
+def test_atomic_signal_cache_write_rolls_back_and_cleans_temp_file():
+    old_cache = ts.SIGNAL_CACHE
+    old_replace = ts.os.replace
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / "nested" / "today-signal.json"
+        path.parent.mkdir(parents=True)
+        previous = {
+            "generated_at": "2026-07-07 08:31",
+            "signals": [],
+            "attention": [],
+        }
+        path.write_text(json.dumps(previous), encoding="utf-8")
+        before = path.read_bytes()
+        try:
+            ts.SIGNAL_CACHE = path
+
+            def fail_replace(source, target):
+                raise OSError("simulated replace failure")
+
+            ts.os.replace = fail_replace
+            try:
+                ts._write_signal_cache({**previous, "generated_at": "2026-07-08 08:31"})
+            except OSError as exc:
+                assert "simulated" in str(exc)
+            else:
+                raise AssertionError("replace failure must propagate")
+        finally:
+            ts.os.replace = old_replace
+            ts.SIGNAL_CACHE = old_cache
+
+        assert path.read_bytes() == before
+        assert list(path.parent.glob(f".{path.name}.*.tmp")) == []
+        assert json.loads(path.read_text(encoding="utf-8")) == previous
+    print("✓ 原子写入失败时保留旧缓存并清理临时文件")
+
+
 if __name__ == "__main__":
     test_probe()
     test_suggest_video_selects_complement()
@@ -557,6 +875,7 @@ if __name__ == "__main__":
     test_normalize_editor_pick_breaking_action()
     test_priority_model_research_detected_and_ranked()
     test_priority_model_research_overrides_generic_industry_trend()
+    test_generate_signals_builds_trustworthy_disjoint_event_draft()
     test_attention_candidate_surfaces_buzzy_unselected_item()
     test_promote_attention_item_adds_manual_signal_without_file_write()
     test_evidence_status_for_signal_shapes()
@@ -568,8 +887,11 @@ if __name__ == "__main__":
     test_breaking_card_renders_action()
     test_signal_freshness_daily_window()
     test_signal_freshness_stays_fresh_until_next_delivery_time()
+    test_freshness_does_not_relabel_yesterday_draft_as_today()
     test_missing_signal_state()
     test_read_signal_cache_marks_non_dict_json_invalid()
     test_read_signal_cache_marks_malformed_object_fields_invalid()
     test_read_signal_cache_marks_malformed_breaking_field_invalid()
+    test_read_signal_cache_marks_malformed_daily_draft_invalid()
+    test_atomic_signal_cache_write_rolls_back_and_cleans_temp_file()
     print("\n全部通过 ✅")

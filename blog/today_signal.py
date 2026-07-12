@@ -1,24 +1,26 @@
 """
 今日信号 - 独立模块（失败不影响现有页面）
 
-流程：拉取 AI HOT 过去 48h 精选 AI 新闻 → 核对原文 → 选出可空缺的
-「1 条顶级大新闻 + 3 个固定判断位」→ 库内优先匹配深度内容，必要时补 1 条 YouTube。
+流程：拉取 AI HOT 过去 48h 精选 AI 新闻 → 按事实事件聚类 → 核对主信源 →
+选出最多 3 个可编辑主题 → 库内优先匹配深度内容，必要时补 1 条 YouTube。
 
 约定：
 - AI HOT 调用在后端做，带浏览器 User-Agent（否则 403），结果缓存 30 分钟
 - transcript 切成 ~15s 小块向量化，按 archive 持久化（npy+json），复用
 - 组装好的信号（含时间戳映射）持久化到 today_signal.json
-- 每个信号最多 1 个本地关联；全页最多 1 个外部 YouTube 推荐
+- 每个主题最多 1 个本地关联；全页最多 1 个外部 YouTube 推荐
 """
 import hashlib
 import json
 import os
 import re
 import subprocess
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -28,9 +30,10 @@ except ImportError:
     np = None
 
 import embeddings  # 复用 embed_texts / load_index / 维度配置
+import topic_drafts
 from source_reader import read_original
 from tool_probe import probe_command
-from user_preferences import behavior_summary, load_profile, prompt_context
+from user_preferences import behavior_summary, load_profile
 
 AIHOT_URL = "https://aihot.virxact.com/api/public/items"
 # /api/public/* 有 UA 黑名单，必须带浏览器 UA，否则 403
@@ -39,7 +42,7 @@ AIHOT_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 
 
 DATA_DIR = Path(__file__).parent / "data"
 CHUNK_DIR = DATA_DIR / "transcript_chunks"
-SIGNAL_CACHE = DATA_DIR / "today_signal.json"
+SIGNAL_CACHE = Path(os.getenv("SIGNAL_CACHE_PATH") or DATA_DIR / "today_signal.json")
 ARCHIVE_ROOT = Path(__file__).parent.parent / "archive"
 
 AIHOT_TTL = 1800        # AI HOT 缓存 30 分钟
@@ -371,78 +374,27 @@ def _archive_by_key():
     return out
 
 
-_SHORTLIST_PROMPT = """你是一个极度克制的 AI 产品资讯编辑。下面是 AI HOT 在过去
-48 小时内发现的候选。先选出最多 {limit} 条值得进一步读取原文核验的候选。
+_CLUSTER_PROMPT = """你是极度克制的 AI 资讯编辑。把下面最多 {pool_size} 条候选按“同一事实事件”合并，
+再留下最多 {limit} 个值得读取原文的事件簇。相同产品名但不同发布日期或不同发布事件不能合并；宽泛主题相似也不能合并。
 
-用户上下文：
-{user_context}
-
-需要覆盖的栏目：
-{slots}
-
-规则：
-- 优先一手信源、原始数据、可迁移方法论、能影响未来 1–3 个月产品判断的事实
-- 特别优先官方研究中揭示模型内部机制、隐性推理、隐藏目标、可解释性、评估或风控方法的内容；
-  这类内容默认属于「1–3 个月行业趋势」，即使它不是新模型发布
-- 同时留意真正的顶级大新闻：正式发布的新模型、关键模态、价格或产品形态变化
-- 排除营销软文、融资人事、工具清单、只有观点没有事实的内容
-- 只做核验候选，不写结论；宁缺毋滥
-
-只输出 JSON：{{"indices":[1,2]}}
+只输出 JSON：
+{{"clusters":[{{"member_indices":[1,4,7]}},{{"member_indices":[2]}}]}}
 
 候选：
 {items}
 """
 
 
-_EDITOR_PROMPT = """你是只服务一位 AI 产品经理的私人主编。你的任务不是提供更多新闻，
-而是让用户在最少阅读量下判断“这件事值不值得继续看”。
+_EDITOR_PROMPT = """你是 NoiseFilter 主编。基于已经读取原文的事件簇，选出最多三个今天值得知道的讨论并按重要性排序。
 
-用户上下文：
-{user_context}
+排序原则：讨论广度负责发现，新闻重要性负责纠偏，信源质量负责兜底；重大模型发布、平台政策变化、关键产品停用可在讨论刚开始时进入高位。宁缺毋滥。
 
-固定栏目：
-{slots}
+每个主题输出：cluster_index、category、title、what_happened、discussion_focus（最多三个短语）、why_ranked、missing_angle、video_queries。title 不超过 34 个中文字符；what_happened 只说一个核心事实；why_ranked 不重复事实。
 
-大新闻门槛：
-{breaking_rules}
+只输出 JSON：
+{{"topics":[{{"cluster_index":1,"category":"模型发布","title":"标题","what_happened":"一句核心事实。","discussion_focus":["焦点一","焦点二"],"why_ranked":"为什么值得今天先知道。","missing_angle":"仍缺什么","video_queries":["query one","query two"]}}]}}
 
-编辑规则：
-1. 只能引用下面“已读取原文”的候选；原文没有支持的结论不能写。
-2. breaking 最多一条，也可以为 null。必须达到全部大新闻门槛，并给出以下行动判断之一：
-   {actions}
-   解释模型内部机制/可解释性的新研究通常不是 breaking，除非同时伴随新模型、新产品或明确可用能力发布。
-3. slots 的三个位置各最多一条，也可以为 null；绝不为了凑满而选弱内容。
-4. 同一候选不能同时占两个位置，大新闻也不能与日常位重复。
-5. summary 用 50–90 个汉字写完整一句，讲清“发生了什么 + 关键事实/数据”，不能截断。
-6. why 用一句话说清它如何影响近期产品判断；不要复述 summary。
-7. missing_angle 写这条短资讯仍缺的机制、案例或方法，供库内内容/视频补足。
-8. video_queries 给两个英文 YouTube 搜索短语，围绕 missing_angle，不要机械翻译标题。
-9. 官方发布可作为事实来源，但不能照搬宣传性结论。无法可靠判断就留空。
-10. 如果已读取原文候选里出现“编辑优先级：模型内部机制与可解释性”，且原文支持，
-    默认放入 industry_trend；不要让就业、融资、工具类趋势挤掉它。
-
-只输出 JSON，结构必须是：
-{{
-  "breaking": null 或 {{
-    "index": 1,
-    "summary": "完整一句话。",
-    "why": "为什么影响产品判断。",
-    "action": "本周应该测试|值得持续关注|暂时知道即可",
-    "missing_angle": "仍缺什么",
-    "video_queries": ["query one", "query two"]
-  }},
-  "slots": {{
-    "consumer_growth": null 或 {{
-      "index": 2, "summary": "完整一句话。", "why": "为什么重要。",
-      "missing_angle": "仍缺什么", "video_queries": ["query one", "query two"]
-    }},
-    "traffic_monetization": null,
-    "industry_trend": null
-  }}
-}}
-
-已读取原文候选：
+事件簇：
 {items}
 """
 
@@ -650,6 +602,7 @@ def _candidate_lines(pool, include_original=False):
             f"{i}. [{item.get('source') or '未知信源'}|"
             f"{item.get('publishedAt') or item.get('published_at') or '未知时间'}] "
             f"{item.get('title') or ''}\n"
+            f"原始链接：{item.get('url') or ''}\n"
             f"AI HOT 摘要：{summary}"
         )
         priority = _priority_signal_kind(item)
@@ -667,55 +620,117 @@ def _candidate_lines(pool, include_original=False):
     return "\n\n".join(lines)
 
 
-def _shortlist_candidates(news, profile):
-    """第一阶段只决定哪些原文值得读取，控制网络开销与上下文长度。"""
-    pool = _pool_candidates(news)
-    if not pool:
+def _cluster_lines(clusters):
+    lines = []
+    for index, cluster in enumerate(clusters, 1):
+        primary = cluster.get("primary_item") or {}
+        original = primary.get("_original") or {}
+        sources = "\n".join(
+            f"- {source.get('publisher') or '未知信源'}："
+            f"{source.get('canonical_url') or source.get('url') or ''}"
+            for source in (cluster.get("sources") or [])
+        )
+        lines.append(
+            f"{index}. {primary.get('title') or ''}\n"
+            f"事件信源：\n{sources}\n"
+            f"原文摘录：{(original.get('text') or '')[:3500]}"
+        )
+    return "\n\n".join(lines)
+
+
+def _read_cluster_primaries(clusters, limit=SHORTLIST_N):
+    """只读每个事件簇的主信源，不可读的整簇不进入编辑。"""
+    selected = list(clusters or [])[:min(SHORTLIST_N, max(0, int(limit or 0)))]
+    if not selected:
         return []
-    slots = json.dumps(profile.get("daily_slots") or [], ensure_ascii=False)
-    data = _chat_json(_SHORTLIST_PROMPT.format(
-        limit=SHORTLIST_N,
-        user_context=prompt_context(profile),
-        slots=slots,
-        items=_candidate_lines(pool),
-    ), temperature=0.1)
-    picked = []
-    seen = set()
-    for raw in data.get("indices") or []:
-        try:
-            idx = int(raw)
-        except (TypeError, ValueError):
-            continue
-        if 1 <= idx <= len(pool) and idx not in seen:
-            seen.add(idx)
-            picked.append(dict(pool[idx - 1]))
-        if len(picked) >= SHORTLIST_N:
-            break
-    return picked
-
-
-def _read_candidate_originals(candidates):
-    """并发核对原文；不可读的候选不会进入最终编辑。"""
-    readable = []
-    with ThreadPoolExecutor(max_workers=min(6, max(1, len(candidates)))) as executor:
+    readable_by_position = {}
+    with ThreadPoolExecutor(max_workers=min(6, len(selected))) as executor:
         futures = {
-            executor.submit(read_original, item.get("url") or ""): item
-            for item in candidates
+            executor.submit(
+                read_original, (cluster.get("primary_item") or {}).get("url") or ""
+            ): (position, cluster)
+            for position, cluster in enumerate(selected)
         }
         for future in as_completed(futures):
-            item = futures[future]
+            position, cluster = futures[future]
             try:
                 original = future.result()
             except Exception:
                 original = {"text": "", "method": "failed", "readable": False}
-            if original.get("readable"):
-                enriched = dict(item)
-                enriched["_original"] = original
-                readable.append(enriched)
-    # 并发完成顺序不稳定，恢复 shortlist 顺序。
-    order = {item.get("url"): i for i, item in enumerate(candidates)}
-    readable.sort(key=lambda item: order.get(item.get("url"), 999))
-    return readable
+            if not isinstance(original, dict) or not original.get("readable"):
+                continue
+
+            enriched = dict(cluster)
+            primary_item = dict(cluster.get("primary_item") or {})
+            primary_item["_original"] = original
+            enriched["primary_item"] = primary_item
+            primary_url = topic_drafts.canonicalize_url(primary_item.get("url"))
+            sources = []
+            marked_readable = False
+            for source in cluster.get("sources") or []:
+                normalized = dict(source)
+                if normalized.get("canonical_url") == primary_url:
+                    normalized["verification_status"] = "readable"
+                    marked_readable = True
+                sources.append(normalized)
+            if marked_readable:
+                enriched["sources"] = sources
+                readable_by_position[position] = enriched
+    return [readable_by_position[index] for index in sorted(readable_by_position)]
+
+
+def _build_daily_draft(news, profile):
+    """把可变 AI HOT 条目转成可核验、可编辑的事件主题草稿。"""
+    local_now = datetime.fromtimestamp(time.time(), _blog_timezone())
+    editorial = (profile or {}).get("editorial_rules") or {}
+    daily_brief = (profile or {}).get("daily_brief") or {}
+    window_hours = int(editorial.get("window_hours") or WINDOW_HOURS)
+    max_candidates = min(
+        SHORTLIST_N,
+        max(1, int(daily_brief.get("max_candidates") or SHORTLIST_N)),
+    )
+    max_topics = min(3, max(0, int(daily_brief.get("max_topics") or TOP_K)))
+
+    raw_pool = topic_drafts.dedupe_input_items_by_canonical_url(
+        _pool_candidates(news)
+    )
+    pool = []
+    for raw in raw_pool:
+        item = dict(raw)
+        priority = _priority_signal_kind(item)
+        item["_priority_rank"] = _priority_rank(item)
+        if priority:
+            item["priority_label"] = priority.get("label") or ""
+        pool.append(item)
+
+    if pool:
+        cluster_payload = _chat_json(_CLUSTER_PROMPT.format(
+            pool_size=len(pool),
+            limit=max_candidates,
+            items=_candidate_lines(pool),
+        ), temperature=0.1)
+        raw_clusters = (
+            cluster_payload.get("clusters")
+            if isinstance(cluster_payload, dict) else []
+        )
+        clusters = topic_drafts.build_clusters(pool, raw_clusters)
+        readable_clusters = _read_cluster_primaries(clusters, max_candidates)
+    else:
+        readable_clusters = []
+
+    editor_payload = {"topics": []}
+    if readable_clusters:
+        editor_payload = _chat_json(_EDITOR_PROMPT.format(
+            items=_cluster_lines(readable_clusters),
+        ), temperature=0.1)
+    return topic_drafts.build_daily_draft(
+        readable_clusters,
+        editor_payload,
+        draft_date=local_now.date().isoformat(),
+        generated_at=local_now.strftime("%Y-%m-%d %H:%M"),
+        window_hours=window_hours,
+        max_topics=max_topics,
+    )
 
 
 def _normalize_editor_pick(raw, candidates, *, slot="", slot_label="", breaking=False,
@@ -817,62 +832,9 @@ def _ensure_priority_research_signal(signals, candidates, used_indices, slots):
 
 
 def _select_editorial(news, profile):
-    """两阶段编辑：先选核验候选，再基于原文生成大新闻与三个固定栏目。"""
-    shortlist = _shortlist_candidates(news, profile)
-    candidates = _read_candidate_originals(shortlist)
-    if not candidates:
-        return {"breaking": None, "signals": []}
-
-    slots = profile.get("daily_slots") or []
-    breaking_cfg = profile.get("breaking_news") or {}
-    actions = breaking_cfg.get("actions") or []
-    data = _chat_json(_EDITOR_PROMPT.format(
-        user_context=prompt_context(profile),
-        slots=json.dumps(slots, ensure_ascii=False),
-        breaking_rules=json.dumps(
-            breaking_cfg.get("requirements") or [], ensure_ascii=False),
-        actions=" / ".join(actions),
-        items=_candidate_lines(candidates, include_original=True),
-    ), temperature=0.1)
-
-    used_indices = set()
-    raw_breaking = data.get("breaking")
-    try:
-        breaking_idx = int(raw_breaking.get("index")) if isinstance(raw_breaking, dict) else None
-    except (TypeError, ValueError):
-        breaking_idx = None
-    breaking = _normalize_editor_pick(
-        raw_breaking, candidates, breaking=True, actions=actions)
-    # 模型机制/可解释性研究是高优先级行业趋势，但不是“大新闻横幅”。
-    # 避免模型因为“重要”就把它误升为 breaking。
-    if breaking and _priority_signal_kind(breaking):
-        breaking = None
-    elif breaking and breaking_idx:
-        used_indices.add(breaking_idx)
-
-    signals = []
-    raw_slots = data.get("slots") if isinstance(data.get("slots"), dict) else {}
-    for slot in slots:
-        key = slot.get("key") or ""
-        raw = raw_slots.get(key)
-        try:
-            idx = int(raw.get("index")) if isinstance(raw, dict) else None
-        except (TypeError, ValueError):
-            idx = None
-        if idx in used_indices:
-            continue
-        normalized = _normalize_editor_pick(
-            raw,
-            candidates,
-            slot=key,
-            slot_label=slot.get("label") or key,
-            actions=actions,
-        )
-        if normalized:
-            used_indices.add(idx)
-            signals.append(normalized)
-    signals = _ensure_priority_research_signal(signals, candidates, used_indices, slots)
-    return {"breaking": breaking, "signals": signals}
+    """旧调用兼容：事件主题映射为原 signals，不再生成 breaking。"""
+    draft = _build_daily_draft(news, profile)
+    return {"breaking": None, "signals": draft.get("topics") or []}
 
 
 def _existing_video_ids():
@@ -1096,9 +1058,14 @@ def answer_query(query, lib_results, days=7):
     return (data.get("answer") or "").strip()
 
 
+def _blog_timezone():
+    return ZoneInfo(os.getenv("BLOG_TIMEZONE", "America/Los_Angeles"))
+
+
 def _parse_generated_at(value):
     try:
-        return datetime.strptime(str(value or ""), "%Y-%m-%d %H:%M")
+        parsed = datetime.strptime(str(value or ""), "%Y-%m-%d %H:%M")
+        return parsed.replace(tzinfo=_blog_timezone())
     except ValueError:
         return None
 
@@ -1130,7 +1097,8 @@ def signal_freshness(payload, now_ts=None, profile=None):
             "label": "读取失败",
             "message": "今日判断缓存缺少有效生成时间。",
         }
-    now_dt = datetime.fromtimestamp(now_ts or time.time())
+    timestamp = time.time() if now_ts is None else now_ts
+    now_dt = datetime.fromtimestamp(timestamp, _blog_timezone())
     expires = _next_delivery_after(generated, profile)
     age_hours = max(0, round((now_dt - generated).total_seconds() / 3600, 1))
     expired = now_dt >= expires
@@ -1198,6 +1166,14 @@ def _has_malformed_signal_cache_fields(payload):
         and not isinstance(payload.get("breaking"), dict)
     ):
         return True
+    if "daily_draft" in payload:
+        draft = payload.get("daily_draft")
+        if not isinstance(draft, dict):
+            return True
+        if any(not isinstance(draft.get(field), list) for field in (
+            "topics", "candidates", "attention"
+        )):
+            return True
     return False
 
 
@@ -1226,9 +1202,25 @@ def read_signals():
 
 
 def _write_signal_cache(payload):
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    SIGNAL_CACHE.write_text(
-        json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    SIGNAL_CACHE.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=SIGNAL_CACHE.parent,
+            prefix=f".{SIGNAL_CACHE.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            json.dump(payload, handle, ensure_ascii=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, SIGNAL_CACHE)
+    finally:
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink()
     return payload
 
 
@@ -1298,28 +1290,44 @@ def generate_signals(records):
     """后台生成（AI HOT + 原文核验 + 编辑判断 + 深度补充），写入缓存。
     由 `run.sh signals` / 每日定时调用，不在网页请求里跑。"""
     now = time.time()
+    local_now = datetime.fromtimestamp(now, _blog_timezone())
     profile = load_profile()
-    news = fetch_aihot(hours=int(
+    window_hours = int(
         (profile.get("editorial_rules") or {}).get("window_hours")
-        or WINDOW_HOURS))
-    editorial = _select_editorial(news, profile) if news else {
-        "breaking": None, "signals": []}
-    breaking = editorial.get("breaking")
-    signals = editorial.get("signals") or []
-    selected_items = ([breaking] if breaking else []) + signals
-    attention = _build_attention_candidates(news, selected_items)
+        or WINDOW_HOURS
+    )
+    news = fetch_aihot(hours=window_hours)
+    daily_draft = _build_daily_draft(news, profile) if news else {
+        "schema_version": 1,
+        "draft_date": local_now.date().isoformat(),
+        "generated_at": local_now.strftime("%Y-%m-%d %H:%M"),
+        "window_hours": window_hours,
+        "topics": [],
+        "candidates": [],
+        "attention": [],
+        "input_stats": {
+            "raw_items": 0,
+            "unique_sources": 0,
+            "clustered_topics": 0,
+        },
+    }
+    topics = daily_draft.get("topics") or []
+    attention, remaining_candidates = topic_drafts.split_attention_candidates(
+        daily_draft.get("candidates") or [], limit=ATTENTION_MAX
+    )
+    daily_draft["candidates"] = remaining_candidates
+    daily_draft["attention"] = attention
 
     # 库内优先；同一篇库内内容不会在多个判断位重复出现。
     library = _prepare_library(records)
     used_records = set()
-    all_picks = selected_items
-    for signal in all_picks:
+    for signal in topics:
         signal["links"] = _match_library(signal, library, used_records)
 
     # 只有库内补充不够时才搜索 YouTube，并且整页最多一条。
     existing = _existing_video_ids()
     suggestions = 0
-    for signal in all_picks:
+    for signal in topics:
         if signal["links"] or suggestions >= SUGGEST_MAX:
             continue
         try:
@@ -1335,14 +1343,13 @@ def generate_signals(records):
 
     payload = {
         "expiry": now + SIGNAL_TTL,
-        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "window_hours": int(
-            (profile.get("editorial_rules") or {}).get("window_hours")
-            or WINDOW_HOURS),
-        "breaking": breaking,
-        "signals": signals,
+        "generated_at": daily_draft["generated_at"],
+        "window_hours": window_hours,
+        "daily_draft": daily_draft,
+        "breaking": None,
+        "signals": topics,
         "attention": attention,
-        "slots_total": len(profile.get("daily_slots") or []),
+        "slots_total": 3,
         "behavior": behavior_summary(profile),
     }
     return _write_signal_cache(payload)
