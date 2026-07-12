@@ -393,6 +393,56 @@ def test_generate_signals_builds_trustworthy_disjoint_event_draft():
     print("✓ 全局去重、事件聚类、可读证据与旧版补充链路保持可信")
 
 
+def test_daily_brief_zero_max_topics_pauses_editor_selection():
+    news = [{
+        "id": "only",
+        "title": "Only event",
+        "url": "https://only.test/news",
+        "source": "Only",
+        "summary": "唯一事件发生了。",
+        "score": 90,
+    }]
+    profile = {
+        "editorial_rules": {"window_hours": 48},
+        "daily_brief": {"max_topics": 0},
+    }
+    chat_stages = []
+
+    def fake_chat(prompt, temperature=0.2):
+        if prompt.startswith("你是极度克制的 AI 资讯编辑"):
+            chat_stages.append("cluster")
+            return {"clusters": [{"member_indices": [1]}]}
+        chat_stages.append("editor")
+        return {"topics": [{
+            "cluster_index": 1,
+            "category": "产品变化",
+            "title": "唯一事件",
+            "what_happened": "唯一事件发生了。",
+            "discussion_focus": [],
+            "why_ranked": "它会影响近期产品判断。",
+            "missing_angle": "实际影响",
+            "video_queries": ["only event product impact"],
+        }]}
+
+    old_chat = ts._chat_json
+    old_read = ts.read_original
+    try:
+        ts._chat_json = fake_chat
+        ts.read_original = lambda url: {
+            "readable": True,
+            "method": "test",
+            "text": f"{url} original",
+        }
+        daily_draft = ts._build_daily_draft(news, profile)
+    finally:
+        ts._chat_json = old_chat
+        ts.read_original = old_read
+
+    assert chat_stages == ["cluster", "editor"]
+    assert daily_draft["topics"] == []
+    print("✓ max_topics=0 暂停编辑选题")
+
+
 def test_attention_candidate_surfaces_buzzy_unselected_item():
     item = {
         "title": "语言模型中的全局工作空间",
@@ -876,6 +926,7 @@ if __name__ == "__main__":
     test_priority_model_research_detected_and_ranked()
     test_priority_model_research_overrides_generic_industry_trend()
     test_generate_signals_builds_trustworthy_disjoint_event_draft()
+    test_daily_brief_zero_max_topics_pauses_editor_selection()
     test_attention_candidate_surfaces_buzzy_unselected_item()
     test_promote_attention_item_adds_manual_signal_without_file_write()
     test_evidence_status_for_signal_shapes()

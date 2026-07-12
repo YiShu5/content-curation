@@ -689,7 +689,10 @@ def _build_daily_draft(news, profile):
         SHORTLIST_N,
         max(1, int(daily_brief.get("max_candidates") or SHORTLIST_N)),
     )
-    max_topics = min(3, max(0, int(daily_brief.get("max_topics") or TOP_K)))
+    configured_max_topics = daily_brief.get("max_topics")
+    if configured_max_topics is None:
+        configured_max_topics = TOP_K
+    max_topics = min(3, max(0, int(configured_max_topics)))
 
     raw_pool = topic_drafts.dedupe_input_items_by_canonical_url(
         _pool_candidates(news)
