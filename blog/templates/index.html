@@ -20,6 +20,11 @@
 {% set vcolors = {'必读':'#EF4444','强烈推荐':'#F59E0B','推荐':'#10B981','一般':'#9CA3AF','可跳过':'#CBD5E1'} %}
 
 {% include "_daily_brief.html" %}
+{% if issue %}
+<div class="daily-share"><button id="dailyCopyButton" type="button" aria-live="polite">复制本期 ↗</button></div>
+<script id="dailySharePayload" type="application/json">{{ {'text': share_text}|tojson }}</script>
+<script src="{{ url_for('static', filename='js/daily.js') }}" defer></script>
+{% endif %}
 
 <div class="home-layout">
     <div class="home-main">
