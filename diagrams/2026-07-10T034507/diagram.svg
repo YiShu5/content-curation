@@ -1,0 +1,147 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1680 1180">
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="9" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M0 0 L10 4 L0 8 z"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1680" height="1180" fill="#FDF0E0"/>
+
+  <rect x="70" y="55" width="1540" height="115" fill="#375DFE" stroke="#1A2240" stroke-width="4"/>
+  <text x="110" y="126" fill="#FDF0E0" font-size="46" font-weight="700">降噪 NoiseFilter</text>
+  <rect x="1040" y="84" width="520" height="58" fill="#FFFFFF" stroke="#1A2240" stroke-width="3"/>
+  <text x="1300" y="121" text-anchor="middle" fill="#1A2240" font-size="24" font-weight="700">内容策展与判断学习工作流</text>
+
+  <!-- Stage rails -->
+  <rect x="70" y="205" width="190" height="230" fill="#375DFE" stroke="#1A2240" stroke-width="4"/>
+  <circle cx="165" cy="265" r="31" fill="#FDF0E0" stroke="#1A2240" stroke-width="3"/>
+  <text x="165" y="276" text-anchor="middle" fill="#1A2240" font-size="30" font-weight="700">01</text>
+  <text x="165" y="338" text-anchor="middle" fill="#FDF0E0" font-size="32" font-weight="700">信号获取</text>
+  <text x="165" y="376" text-anchor="middle" fill="#FDF0E0" font-size="20">自动扫描 / 手动触发</text>
+
+  <rect x="70" y="505" width="190" height="230" fill="#2741C0" stroke="#1A2240" stroke-width="4"/>
+  <circle cx="165" cy="565" r="31" fill="#FDF0E0" stroke="#1A2240" stroke-width="3"/>
+  <text x="165" y="576" text-anchor="middle" fill="#1A2240" font-size="30" font-weight="700">02</text>
+  <text x="165" y="638" text-anchor="middle" fill="#FDF0E0" font-size="32" font-weight="700">知识沉淀</text>
+  <text x="165" y="676" text-anchor="middle" fill="#FDF0E0" font-size="20">加工 / 归档 / 索引</text>
+
+  <rect x="70" y="805" width="190" height="300" fill="#375DFE" stroke="#1A2240" stroke-width="4"/>
+  <circle cx="165" cy="875" r="31" fill="#FDF0E0" stroke="#1A2240" stroke-width="3"/>
+  <text x="165" y="886" text-anchor="middle" fill="#1A2240" font-size="30" font-weight="700">03</text>
+  <text x="165" y="950" text-anchor="middle" fill="#FDF0E0" font-size="32" font-weight="700">产品呈现</text>
+  <text x="165" y="988" text-anchor="middle" fill="#FDF0E0" font-size="20">阅读 / 判断 / 学习</text>
+
+  <!-- Stage panels -->
+  <rect x="290" y="205" width="1320" height="230" fill="#FFFFFF" stroke="#1A2240" stroke-width="4"/>
+  <rect x="290" y="505" width="1320" height="230" fill="#FDF0E0" stroke="#1A2240" stroke-width="4"/>
+  <rect x="290" y="805" width="1320" height="300" fill="#FFFFFF" stroke="#1A2240" stroke-width="4"/>
+
+  <!-- Stage 1 nodes -->
+  <rect x="330" y="270" width="230" height="105" fill="#FDF0E0" stroke="#1A2240" stroke-width="3"/>
+  <rect x="330" y="270" width="230" height="12" fill="#375DFE"/>
+  <text x="445" y="316" text-anchor="middle" fill="#1A2240" font-size="27" font-weight="700">内容入口</text>
+  <text x="445" y="349" text-anchor="middle" fill="#1A2240" font-size="18">订阅源 · 手动 URL</text>
+
+  <rect x="640" y="270" width="230" height="105" fill="#FDF0E0" stroke="#1A2240" stroke-width="3"/>
+  <rect x="640" y="270" width="230" height="12" fill="#375DFE"/>
+  <text x="755" y="316" text-anchor="middle" fill="#1A2240" font-size="27" font-weight="700">元数据抓取</text>
+  <text x="755" y="349" text-anchor="middle" fill="#1A2240" font-size="18">yt-dlp · RSS · 封面</text>
+
+  <rect x="950" y="255" width="250" height="135" fill="#375DFE" stroke="#1A2240" stroke-width="4"/>
+  <text x="1075" y="304" text-anchor="middle" fill="#FDF0E0" font-size="28" font-weight="700">转录获取</text>
+  <rect x="976" y="324" width="198" height="44" fill="#FFFFFF" stroke="#1A2240" stroke-width="2"/>
+  <text x="1075" y="351" text-anchor="middle" fill="#1A2240" font-size="17">BibiGPT / 免费兜底</text>
+
+  <rect x="1270" y="270" width="290" height="105" fill="#FDF0E0" stroke="#1A2240" stroke-width="3"/>
+  <rect x="1270" y="270" width="290" height="12" fill="#375DFE"/>
+  <text x="1415" y="316" text-anchor="middle" fill="#1A2240" font-size="27" font-weight="700">原始内容包</text>
+  <text x="1415" y="349" text-anchor="middle" fill="#1A2240" font-size="16">metadata · transcript · cover</text>
+
+  <line x1="560" y1="322" x2="630" y2="322" stroke="#375DFE" stroke-width="4" marker-end="url(#arrow)"/>
+  <line x1="870" y1="322" x2="940" y2="322" stroke="#375DFE" stroke-width="4" marker-end="url(#arrow)"/>
+  <line x1="1200" y1="322" x2="1260" y2="322" stroke="#375DFE" stroke-width="4" marker-end="url(#arrow)"/>
+  <rect x="585" y="218" width="300" height="34" fill="#1A2240"/>
+  <text x="735" y="241" text-anchor="middle" fill="#FDF0E0" font-size="17" font-weight="700">每日任务扫描 · 用户直接提交</text>
+
+  <!-- Stage 2 nodes -->
+  <rect x="320" y="565" width="270" height="120" fill="#FFFFFF" stroke="#1A2240" stroke-width="3"/>
+  <rect x="320" y="565" width="270" height="12" fill="#375DFE"/>
+  <text x="455" y="610" text-anchor="middle" fill="#1A2240" font-size="26" font-weight="700">AI 改写与评分</text>
+  <text x="455" y="642" text-anchor="middle" fill="#1A2240" font-size="16">标题 · 金句 · 洞察</text>
+  <text x="455" y="666" text-anchor="middle" fill="#1A2240" font-size="16">洞察原创 · 信源质量 · 故事可读</text>
+
+  <rect x="650" y="550" width="285" height="155" fill="#375DFE" stroke="#1A2240" stroke-width="4"/>
+  <text x="792" y="596" text-anchor="middle" fill="#FDF0E0" font-size="29" font-weight="700">本地 archive</text>
+  <rect x="680" y="616" width="225" height="64" fill="#FFFFFF" stroke="#1A2240" stroke-width="2"/>
+  <text x="792" y="643" text-anchor="middle" fill="#1A2240" font-size="18" font-weight="700">当前唯一真相源</text>
+  <text x="792" y="666" text-anchor="middle" fill="#1A2240" font-size="16">摘要 · 转录 · 元数据 · 封面</text>
+
+  <rect x="1020" y="575" width="230" height="105" fill="#FFFFFF" stroke="#1A2240" stroke-width="3"/>
+  <rect x="1020" y="575" width="230" height="12" fill="#375DFE"/>
+  <text x="1135" y="620" text-anchor="middle" fill="#1A2240" font-size="26" font-weight="700">内容补全</text>
+  <text x="1135" y="652" text-anchor="middle" fill="#1A2240" font-size="17">嘉宾介绍 · 精选金句</text>
+
+  <rect x="1340" y="575" width="220" height="105" fill="#FFFFFF" stroke="#1A2240" stroke-width="3"/>
+  <rect x="1340" y="575" width="220" height="12" fill="#375DFE"/>
+  <text x="1450" y="620" text-anchor="middle" fill="#1A2240" font-size="26" font-weight="700">向量索引</text>
+  <text x="1450" y="652" text-anchor="middle" fill="#1A2240" font-size="17">搜索 · 推荐 · 今日判断</text>
+
+  <line x1="590" y1="627" x2="640" y2="627" stroke="#375DFE" stroke-width="4" marker-end="url(#arrow)"/>
+  <line x1="935" y1="627" x2="1010" y2="627" stroke="#375DFE" stroke-width="4" marker-end="url(#arrow)"/>
+  <line x1="1250" y1="627" x2="1330" y2="627" stroke="#375DFE" stroke-width="4" marker-end="url(#arrow)"/>
+  <polyline points="1415,375 1415,470 455,470 455,555" fill="none" stroke="#375DFE" stroke-width="4" marker-end="url(#arrow)"/>
+
+  <!-- Optional Feishu outputs -->
+  <line x1="792" y1="705" x2="792" y2="716" stroke="#2741C0" stroke-width="3" stroke-dasharray="10 8"/>
+  <line x1="792" y1="716" x2="650" y2="716" stroke="#2741C0" stroke-width="3" stroke-dasharray="10 8"/>
+  <rect x="650" y="690" width="135" height="36" fill="#FFFFFF" stroke="#2741C0" stroke-width="2"/>
+  <text x="717" y="714" text-anchor="middle" fill="#1A2240" font-size="16">飞书多维表格</text>
+  <rect x="800" y="690" width="135" height="36" fill="#FFFFFF" stroke="#2741C0" stroke-width="2"/>
+  <text x="867" y="714" text-anchor="middle" fill="#1A2240" font-size="16">飞书文档</text>
+  <line x1="792" y1="708" x2="800" y2="708" stroke="#2741C0" stroke-width="3" stroke-dasharray="10 8"/>
+  <text x="965" y="716" fill="#1A2240" font-size="16" font-weight="700">可选同步出口 · 不作为网站数据源</text>
+
+  <!-- Stage 3 nodes -->
+  <rect x="330" y="865" width="245" height="110" fill="#FDF0E0" stroke="#1A2240" stroke-width="3"/>
+  <rect x="330" y="865" width="245" height="12" fill="#375DFE"/>
+  <text x="452" y="913" text-anchor="middle" fill="#1A2240" font-size="27" font-weight="700">Flask 网站</text>
+  <text x="452" y="946" text-anchor="middle" fill="#1A2240" font-size="17">实时读取本地 archive</text>
+
+  <rect x="650" y="845" width="295" height="150" fill="#375DFE" stroke="#1A2240" stroke-width="4"/>
+  <text x="797" y="889" text-anchor="middle" fill="#FDF0E0" font-size="27" font-weight="700">产品呈现</text>
+  <rect x="678" y="909" width="239" height="62" fill="#FFFFFF" stroke="#1A2240" stroke-width="2"/>
+  <text x="797" y="934" text-anchor="middle" fill="#1A2240" font-size="17">首页 · 详情 · 语义搜索</text>
+  <text x="797" y="958" text-anchor="middle" fill="#1A2240" font-size="17">相关推荐 · 今日必读</text>
+
+  <rect x="1015" y="855" width="275" height="130" fill="#FDF0E0" stroke="#1A2240" stroke-width="3"/>
+  <rect x="1015" y="855" width="275" height="12" fill="#375DFE"/>
+  <text x="1152" y="903" text-anchor="middle" fill="#1A2240" font-size="27" font-weight="700">用户行为</text>
+  <text x="1152" y="936" text-anchor="middle" fill="#1A2240" font-size="17">点击 · 采纳 · 忽略</text>
+  <text x="1152" y="963" text-anchor="middle" fill="#1A2240" font-size="17">建议内容入库</text>
+
+  <rect x="1350" y="845" width="220" height="150" fill="#2741C0" stroke="#1A2240" stroke-width="4"/>
+  <text x="1460" y="889" text-anchor="middle" fill="#FDF0E0" font-size="26" font-weight="700">判断学习</text>
+  <rect x="1375" y="909" width="170" height="62" fill="#FFFFFF" stroke="#1A2240" stroke-width="2"/>
+  <text x="1460" y="934" text-anchor="middle" fill="#1A2240" font-size="17">行为记录 · 偏好信号</text>
+  <text x="1460" y="958" text-anchor="middle" fill="#1A2240" font-size="17">更新下一轮筛选</text>
+
+  <line x1="575" y1="920" x2="640" y2="920" stroke="#375DFE" stroke-width="4" marker-end="url(#arrow)"/>
+  <line x1="945" y1="920" x2="1005" y2="920" stroke="#375DFE" stroke-width="4" marker-end="url(#arrow)"/>
+  <line x1="1290" y1="920" x2="1340" y2="920" stroke="#375DFE" stroke-width="4" marker-end="url(#arrow)"/>
+  <polyline points="1458,995 1458,1048 797,1048 797,1005" fill="none" stroke="#2741C0" stroke-width="4" marker-end="url(#arrow)"/>
+  <rect x="942" y="1028" width="360" height="40" fill="#FFFFFF" stroke="#1A2240" stroke-width="2"/>
+  <text x="1122" y="1054" text-anchor="middle" fill="#1A2240" font-size="17" font-weight="700">行为反馈 → 今日判断 → 下一轮内容排序</text>
+
+  <!-- Ingest loop back to content entry -->
+  <polyline points="1290,945 1315,945 1315,1085 300,1085 300,415 445,415 445,385" fill="none" stroke="#375DFE" stroke-width="3" stroke-dasharray="11 8" marker-end="url(#arrow)"/>
+  <rect x="330" y="1018" width="210" height="40" fill="#FDF0E0" stroke="#375DFE" stroke-width="2"/>
+  <text x="435" y="1044" text-anchor="middle" fill="#1A2240" font-size="17" font-weight="700">建议入库 → 再加工</text>
+
+  <!-- Daily automation spine -->
+  <polyline points="1550,680 1585,680 1585,780 1460,780 1460,835" fill="none" stroke="#375DFE" stroke-width="3" marker-end="url(#arrow)"/>
+  <rect x="1230" y="754" width="250" height="42" fill="#1A2240"/>
+  <text x="1355" y="782" text-anchor="middle" fill="#FDF0E0" font-size="17" font-weight="700">每日刷新：补全 · 索引 · 信号</text>
+
+  <rect x="330" y="1125" width="1240" height="42" fill="#375DFE" stroke="#1A2240" stroke-width="3"/>
+  <text x="950" y="1154" text-anchor="middle" fill="#FDF0E0" font-size="21" font-weight="700">更少噪音 · 更强判断 · 持续增长的个人知识资产</text>
+</svg>

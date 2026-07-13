@@ -812,6 +812,70 @@ a { color: inherit; text-decoration: none; }
 
 .d-quote-item:last-child { border-bottom: none; }
 
+/* 锚点定位：留出 sticky header 高度，避免金句上半截被遮挡 */
+.d-quote-item, #key-quotes { scroll-margin-top: calc(var(--header-height, 56px) + 12px); }
+
+.d-quote-item:target { background: rgba(184,95,66,.08); }
+.d-quote-item:target::before { background: var(--accent-hover); width: 5px; }
+
+.d-quote-card-btn {
+    margin-left: auto;
+    align-self: flex-start;
+    flex-shrink: 0;
+    border: 1px solid rgba(184,95,66,.35);
+    background: transparent;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 12px;
+    border-radius: 14px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.d-quote-card-btn:hover { background: rgba(184,95,66,.1); }
+
+.qc-modal { position: fixed; inset: 0; z-index: 300; }
+.qc-backdrop { position: absolute; inset: 0; background: rgba(10,10,18,.6); }
+.qc-panel {
+    position: relative;
+    max-width: 720px;
+    margin: 8vh auto 0;
+    background: var(--card-bg);
+    border-radius: 14px;
+    padding: 18px;
+    box-shadow: 0 24px 60px rgba(0,0,0,.35);
+}
+.qc-panel img { width: 100%; border-radius: 8px; display: block; }
+.qc-actions { display: flex; gap: 10px; margin-top: 12px; }
+.qc-btn {
+    border: 1px solid rgba(184,95,66,.35);
+    background: transparent;
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 700;
+    padding: 7px 16px;
+    border-radius: 9px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+}
+.qc-btn:hover { background: rgba(184,95,66,.1); }
+.qc-status { color: var(--text-secondary); font-size: 13px; padding: 24px 0; text-align: center; }
+.qc-panel-wide { max-width: 960px; }
+
+.signals-share-btn {
+    border: 1px solid rgba(184,95,66,.35);
+    background: transparent;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 12px;
+    border-radius: 14px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.signals-share-btn:hover { background: rgba(184,95,66,.1); }
+
 .d-quote-item::before {
     content: "";
     position: absolute;
@@ -2176,6 +2240,17 @@ a { color: inherit; text-decoration: none; }
     padding: 2px 8px;
     border-radius: 7px;
 }
+.signal-link-origin {
+    display: inline-block;
+    margin-top: 6px;
+    color: var(--text-secondary);
+    font-size: 11.5px;
+    font-weight: 750;
+    white-space: nowrap;
+}
+.signal-link-origin:hover { color: var(--accent-hover); }
+.signal-breaking .signal-link-origin { color: rgba(255,255,255,.78); }
+.signal-breaking .signal-link-origin:hover { color: #FFD4BD; }
 .signal-link-match { display: none; }
 .signals-empty {
     font-size: 14px;

@@ -1,17 +1,16 @@
 """
-内容策展博客 - 基于飞书多维表格的个人博客
+内容策展博客 - 以本地 archive 为真相源的个人博客
 """
 
+import hashlib
 import json
 import html
-import os
 import time
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import requests
-from flask import Flask, render_template, abort, Response, request, send_file, redirect, url_for
+from flask import Flask, render_template, abort, request, send_file, redirect, url_for
 
 import re as _re
 from urllib.parse import quote as _urlquote
@@ -43,6 +42,34 @@ def _strip_markdown(text):
     t = _re.sub(r'\n{2,}', ' ', t)             # 多行变空格
     t = _re.sub(r'\n', ' ', t)
     return t.strip()
+
+def _quote_anchor(quote):
+    """金句锚点 id：归一化文本的短 hash。信号链接与详情页两端用同一 filter
+    计算，文本一致即命中；不按 index 定位（金句会被 select-quotes 重排、
+    rescore 重建，index 含义会漂移）。任何异常返回空串——锚点是增强功能，
+    不能让 today_signal 的导入问题把详情页打成 500。"""
+    try:
+        import today_signal
+        norm = today_signal.quote_text(quote)
+        if not norm:
+            return ""
+        return "q-" + hashlib.sha1(norm.encode("utf-8")).hexdigest()[:8]
+    except Exception as e:
+        app.logger.warning(f"quote_anchor 降级为空锚点: {e}")
+        return ""
+
+
+def _quote_display(quote):
+    """金句展示文本：dict 形态取正文；取不到正文时返回空串，绝不渲染 repr。"""
+    try:
+        import today_signal
+        text = today_signal.quote_text(quote)
+    except Exception as e:
+        app.logger.warning(f"quote_display 归一化失败: {e}")
+        text = ""
+    if text:
+        return text
+    return "" if isinstance(quote, dict) else str(quote or "")
 
 # 优先加载项目根目录的 config/.env（开发环境无需手动设置系统变量）
 _env_path = Path(__file__).parent.parent / "config" / ".env"
@@ -109,139 +136,24 @@ def admin_logout():
     admin_auth.logout_admin()
     return redirect(url_for("index"))
 
-# ── 飞书 API（legacy，博客已改读本地 archive，不再调用）──────────────────────
-_token_cache = {"token": "", "expiry": 0}
+
+def _article_attribution(article):
+    """金句卡署名（guest_info→guests→uploader 降级链），供模板拼「复制文字版」。"""
+    try:
+        import text_card
+        name, role = text_card.resolve_attribution({
+            "guest_info": article.get("guest_info"),
+            "guests": article.get("guests"),
+            "uploader": article.get("creator"),
+        })
+        return f"{name} · {role}" if role else name
+    except Exception:
+        return str(article.get("creator") or "")
 
 
-def get_access_token():
-    if _token_cache["token"] and time.time() < _token_cache["expiry"] - 60:
-        return _token_cache["token"]
-    resp = requests.post(
-        "https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal/",
-        json={
-            "app_id": app.config["FEISHU_APP_ID"],
-            "app_secret": app.config["FEISHU_APP_SECRET"],
-        },
-        timeout=15,
-    )
-    data = resp.json()
-    if data.get("code") != 0:
-        raise RuntimeError(f"飞书 Token 获取失败: {data}")
-    _token_cache["token"] = data["app_access_token"]
-    _token_cache["expiry"] = time.time() + data["expire"]
-    return _token_cache["token"]
-
-
-# ── 数据缓存 ──────────────────────────────────────────────────────────────
-_data_cache = {"records": [], "expiry": 0}
-
-
-def fetch_records():
-    now = time.time()
-    if _data_cache["records"] and now < _data_cache["expiry"]:
-        return _data_cache["records"]
-
-    token = get_access_token()
-    base_id = app.config["BASE_ID"]
-    table_id = app.config["TABLE_ID"]
-
-    # 使用 list API（比 search API 权限要求更低，且能直接返回字段内容）
-    url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{base_id}/tables/{table_id}/records"
-    headers = {"Authorization": f"Bearer {token}"}
-
-    all_records = []
-    page_token = None
-
-    while True:
-        params = {"page_size": 100}
-        if page_token:
-            params["page_token"] = page_token
-
-        resp = requests.get(url, headers=headers, params=params, timeout=15)
-        data = resp.json()
-
-        if data.get("code") != 0:
-            raise RuntimeError(f"飞书查询失败: {data}")
-
-        items = data.get("data", {}).get("items", [])
-        for item in items:
-            fields = item.get("fields", {})
-            record_id = item.get("record_id", "")
-
-            # 跳过空记录
-            if not fields:
-                continue
-
-            # 处理封面附件 - 保存 file_token 用于代理下载
-            cover_token = ""
-            cover_field = fields.get("封面")
-            if isinstance(cover_field, list) and cover_field:
-                cover_token = cover_field[0].get("file_token", "")
-
-            # 处理链接字段
-            link = fields.get("原始链接", "")
-            if isinstance(link, dict):
-                link = link.get("link", "")
-
-            # 处理日期字段（飞书返回 ms 时间戳）
-            pub_date = fields.get("发布日期", "")
-            if isinstance(pub_date, (int, float)):
-                pub_date = time.strftime("%Y-%m-%d", time.localtime(pub_date / 1000))
-
-            # 总分/评级作为兜底（archive 缺失时显示个大概）；评分细分维度统一由
-            # _enrich_from_local 用本地 archive 的新评分体系填充。飞书表里的旧维度列
-            # （AI相关性/故事性/加分项）已废弃，不再读取。
-            score_total = _num_value(fields.get("总分"))
-
-            all_records.append({
-                "id": record_id,
-                "title": _text_value(fields.get("标题", "")),
-                "original_title": _text_value(fields.get("原标题", "")),
-                "platform": _text_value(fields.get("来源平台", "")),
-                "creator": _text_value(fields.get("创作者", "")),
-                "pub_date": pub_date,
-                "link": link,
-                "duration": fields.get("时长（分钟）", 0),
-                "guests": _text_value(fields.get("嘉宾", "")),
-                "summary": _text_value(fields.get("深度摘要", "")),
-                "cover_token": cover_token,
-                "topic": _text_value(fields.get("话题", "")),
-                "score_total": score_total,
-                "score_verdict": _text_value(fields.get("评级", "")),
-                "scores": {},
-            })
-
-        if not data.get("data", {}).get("has_more"):
-            break
-        page_token = data["data"].get("page_token")
-
-    _data_cache["records"] = all_records
-    _data_cache["expiry"] = now + app.config["CACHE_TTL"]
-    return all_records
-
-
-def _text_value(field):
-    """提取飞书字段的文本值（可能是纯文本或富文本结构）"""
-    if isinstance(field, str):
-        return field
-    if isinstance(field, list):
-        # 富文本: [{"type": "text", "text": "..."}]
-        return "".join(item.get("text", "") for item in field if isinstance(item, dict))
-    if isinstance(field, dict):
-        return field.get("text", "") or field.get("value", "") or str(field)
-    return str(field) if field else ""
-
-
-def _num_value(field):
-    """提取飞书数字字段，无值/无法解析返回 None"""
-    if isinstance(field, (int, float)):
-        return field
-    if isinstance(field, str) and field.strip():
-        try:
-            return float(field) if "." in field else int(field)
-        except ValueError:
-            return None
-    return None
+app.jinja_env.filters['quote_anchor'] = _quote_anchor
+app.jinja_env.filters['quote_display'] = _quote_display
+app.jinja_env.filters['attribution'] = _article_attribution
 
 
 # ── 本地 archive 作为真相源（不依赖飞书）─────────────────────────────────────
@@ -561,97 +473,6 @@ def daily_issue(issue_date):
     return render_template("daily.html", **_issue_view(issue, is_home=False))
 
 
-# 本地 archive 索引缓存：
-#   by_rid: { feishu_record_id -> meta }（已同步内容）
-#   by_key: { 内容键(视频id) -> meta }（按 URL 匹配，兼容重跑生成、未回填 record_id 的 archive）
-# loaded 标记区分「尚未构建」与「构建结果为空」，避免空 archive 每次请求重复扫描
-_local_index_cache = {"by_rid": {}, "by_key": {}, "expiry": 0, "loaded": False}
-
-
-def _content_key(url):
-    """从 URL 提取稳定内容键，用于把飞书记录与本地 archive 对应起来
-    （视频 id 比 record_id 稳定，且能让同一视频的多条记录共享同一份归档）"""
-    if not url:
-        return ""
-    m = _re.search(r'(?:youtu\.be/|[?&]v=|/embed/|/shorts/)([A-Za-z0-9_-]{11})', url)
-    if m:
-        return "yt:" + m.group(1)
-    m = _re.search(r'xiaohongshu\.com/explore/([A-Za-z0-9]+)', url)
-    if m:
-        return "xhs:" + m.group(1)
-    m = _re.search(r'(BV[A-Za-z0-9]+)', url)
-    if m:
-        return "bili:" + m.group(1)
-    return url.split('?')[0].rstrip('/')
-
-
-def _build_local_index():
-    now = time.time()
-    if _local_index_cache["loaded"] and now < _local_index_cache["expiry"]:
-        return
-    by_rid, by_key = {}, {}
-    archive_root = Path(__file__).parent.parent / "archive"
-    if archive_root.exists():
-        for d in archive_root.iterdir():
-            if not d.is_dir():
-                continue
-            meta_path = d / "metadata.json"
-            if not meta_path.exists():
-                continue
-            try:
-                meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            except Exception:
-                continue
-            if not meta.get("rewrite_complete"):
-                continue  # 跳过转录/改写未完成的归档
-            rid = meta.get("feishu_record_id")
-            if rid:
-                by_rid[rid] = meta
-            key = _content_key(meta.get("url") or "")
-            if key:
-                by_key.setdefault(key, meta)  # 同一视频多份归档时，先扫到的优先
-    _local_index_cache["by_rid"] = by_rid
-    _local_index_cache["by_key"] = by_key
-    _local_index_cache["loaded"] = True
-    _local_index_cache["expiry"] = now + app.config["CACHE_TTL"]
-
-
-def _enrich_from_local(article):
-    """从本地 archive 的 metadata.json 补充金句、核心观点、评分等详细数据。
-    先按 feishu_record_id 匹配，再按内容键(视频id)兜底。"""
-    _build_local_index()
-    meta = _local_index_cache["by_rid"].get(article["id"])
-    if not meta:
-        meta = _local_index_cache["by_key"].get(_content_key(article.get("link") or ""))
-    if meta:
-        # 优先使用本地中文标题（防止飞书中存的是英文标题）
-        cn_title = meta.get("chinese_title", "")
-        if cn_title and cn_title != article.get("title"):
-            article["title"] = cn_title
-        article["key_quotes"] = meta.get("key_quotes", [])
-        article["core_ideas"] = meta.get("core_ideas", [])
-        article["key_insights"] = meta.get("key_insights", "")
-        article["summary_md"] = meta.get("deep_summary", "")
-        article["why_watch"] = meta.get("why_watch", "")
-        article["score_total"] = meta.get("score_total")
-        article["score_verdict"] = meta.get("score_verdict", "")
-        article["scores"] = meta.get("scores", {})
-        article["guest_info"] = meta.get("guest_info", [])
-        if not article["guests"] and meta.get("guests"):
-            article["guests"] = "、".join(meta["guests"])
-    else:
-        article.setdefault("key_quotes", [])
-        article.setdefault("core_ideas", [])
-        article.setdefault("key_insights", "")
-        article.setdefault("summary_md", "")
-        article.setdefault("why_watch", "")
-        article.setdefault("score_total", None)
-        article.setdefault("score_verdict", "")
-        article.setdefault("scores", {})
-        article.setdefault("guest_info", [])
-    return article
-
-
 # 问句型查询的标志词（命中则走「AI 综合回答」，否则纯列卡片）
 _Q_MARKERS = ("?", "？", "啥", "什么", "怎么", "如何", "为什么", "哪些", "哪几", "哪个",
               "对比", "区别", "总结", "概况", "趋势", "看法", "观点", "这周", "本周",
@@ -826,22 +647,74 @@ def cover_local(name):
     return send_file(covers[0], max_age=86400)
 
 
-@app.route("/cover/<file_token>")
-def cover_proxy(file_token):
-    """代理飞书附件下载（因为附件 URL 需要认证）"""
-    try:
-        token = get_access_token()
-        resp = requests.get(
-            f"https://open.feishu.cn/open-apis/drive/v1/medias/{file_token}/download",
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        content_type = resp.headers.get("Content-Type", "image/jpeg")
-        return Response(resp.content, content_type=content_type,
-                        headers={"Cache-Control": "public, max-age=86400"})
-    except Exception:
+@app.route("/article/<record_id>/quote-card.png")
+def quote_card(record_id):
+    """文字金句卡（无视频帧）：按（记录, 序号, 金句文本 hash）缓存，
+    未命中时 headless Chrome 同步渲染（1-2 秒，单人使用可接受）。
+    金句 hash 进缓存键——select-quotes 重排后不会出旧卡。"""
+    article = next((r for r in load_archive_records() if r["id"] == record_id), None)
+    if not article:
         abort(404)
+    quotes = article.get("key_quotes") or []
+    try:
+        i = int(request.args.get("i", "0"))
+    except ValueError:
+        abort(404)
+    if not (0 <= i < len(quotes)):
+        abort(404)
+
+    import text_card
+    text = text_card.normalize_quote(quotes[i])
+    if not text:
+        abort(404)
+    h = hashlib.sha1(text.encode("utf-8")).hexdigest()[:8]
+    out = Path(__file__).parent / "data" / "quote_cards" / f"textcard-{record_id}-{i}-{h}.png"
+    if not out.exists():
+        name, role = text_card.resolve_attribution({
+            "guest_info": article.get("guest_info"),
+            "guests": article.get("guests"),
+            "uploader": article.get("creator"),
+        })
+        ok, err_msg = text_card.render_text_card(
+            text, name, role, article.get("title", ""),
+            article.get("platform", ""), out)
+        if not ok:
+            print(f"[WARN] 金句卡渲染失败: {err_msg}")
+            abort(503)
+    # max_age=0：金句 hash 只在服务端文件名里，URL 不变——浏览器缓存会在
+    # select-quotes 重排后拆穿「不出旧卡」的承诺，禁用浏览器缓存（服务端有文件缓存）
+    return send_file(out, max_age=0)
+
+
+def _daily_card_key(cached):
+    """日卡缓存键：generated_at + 信号/breaking 的 item_id 摘要。
+    只用 generated_at 不够——手动 promote 会改 signals 但不改生成时间，
+    纯时间键会把 promote 前的旧卡分享出去。"""
+    gen = str(cached.get("generated_at") or "")
+    sig_ids = ",".join(str(s.get("item_id") or "") if isinstance(s, dict) else ""
+                       for s in (cached.get("signals") or []))
+    brk = str(((cached.get("breaking") or {}) or {}).get("item_id") or "")
+    return hashlib.sha1(f"{gen}|{brk}|{sig_ids}".encode("utf-8")).hexdigest()[:8]
+
+
+@app.route("/signal-card.png")
+def signal_card():
+    """今日 AI 判断日卡：横版 1920×1080，同事扫一眼等于看完当天判断。
+    缓存按内容键（一天正常只渲一次）；过期缓存照常出卡（用户可能晚发），
+    卡上日期如实标注。"""
+    import today_signal
+    cached = today_signal.read_signal_cache()
+    if not cached or not (cached.get("signals") or cached.get("breaking")):
+        abort(404)
+    import text_card
+    gen = str(cached.get("generated_at") or "")
+    out = Path(__file__).parent / "data" / "quote_cards" / f"dailycard-{_daily_card_key(cached)}.png"
+    if not out.exists():
+        ok, err_msg = text_card.render_daily_card(cached, out, date_str=gen[:10])
+        if not ok:
+            print(f"[WARN] 今日卡渲染失败: {err_msg}")
+            abort(503)
+    return send_file(out, max_age=0)
 
 
 # ── 启动 ──────────────────────────────────────────────────────────────────

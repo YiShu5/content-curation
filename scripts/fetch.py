@@ -35,6 +35,13 @@ load_dotenv(CONFIG_DIR / ".env")
 
 BIBIGPT_TOKEN = os.getenv("BIBIGPT_API_TOKEN", "")
 ARCHIVE_DIR = PROJECT_ROOT / os.getenv("ARCHIVE_DIR", "./archive")
+# whisper 本地/Groq 云端共用的音频与转录缓存（按视频 id 免重复下载/转录）
+WHISPER_CACHE_DIR = Path.home() / ".cache" / "whisper-cpp" / "jobs"
+
+# 转录失败标记：写端（process_item）与读端（read_existing_transcript）共用。
+# ⚠️ rewrite.js 里有一份 JS 拷贝按同样前缀识别失败转录，改动需同步。
+FAIL_MARK_ERROR = "[转录获取失败"
+FAIL_MARK_EMPTY = "[无可用转录"
 
 # 国内 API（BibiGPT）需要直连，不走代理；海外 API 走系统代理
 _no_proxy_session = requests.Session()
@@ -378,6 +385,78 @@ def get_transcript_ytapi(video_id: str) -> str:
         raise RuntimeError(f"youtube-transcript-api 也失败了: {e}")
 
 
+def _is_original_audio(p: Path) -> bool:
+    """原始下载音源判定：排除派生产物（whisper 的 wav/json、Groq 的 .groq.mp3）。
+    直链音源本身可能就是 .mp3，不能按扩展名一刀切排除。"""
+    return p.suffix not in (".wav", ".json") and not p.name.endswith(".groq.mp3")
+
+
+def _download_audio(url: str, key: str, cdir: Path) -> Path:
+    """下载音频到缓存目录（whisper 本地/Groq 云端共用；已下过不重下）。
+    不再强制 android player_client——全局 yt-dlp 配置已有 js-runtimes 药方。"""
+    dl = next((p for p in sorted(cdir.glob(f"{key}.*")) if _is_original_audio(p)), None)
+    if dl:
+        return dl
+    ydl = str(PROJECT_ROOT / ".venv" / "bin" / "yt-dlp")
+    if not Path(ydl).exists():
+        ydl = "yt-dlp"
+    subprocess.run([ydl, "-f", "ba/b", "-o", str(cdir / f"{key}.%(ext)s"), url],
+                   capture_output=True, text=True, timeout=900)
+    dl = next((p for p in sorted(cdir.glob(f"{key}.*")) if _is_original_audio(p)), None)
+    if not dl:
+        raise RuntimeError("音频下载失败")
+    return dl
+
+
+def _segments_to_lines(segments) -> list[str]:
+    """把带 start 秒数的 segments 拼成与其他通道一致的 [HH:MM:SS] 行。"""
+    lines = []
+    for seg in segments or []:
+        try:
+            sec = int(float(seg.get("start") or 0))
+        except (TypeError, ValueError):
+            sec = 0
+        txt = (seg.get("text") or "").strip()
+        if txt:
+            lines.append(f"[{sec // 3600:02d}:{sec % 3600 // 60:02d}:{sec % 60:02d}] {txt}")
+    return lines
+
+
+def get_transcript_groq(url: str, video_id: str = "") -> str:
+    """Groq Whisper 云端转录（whisper-large-v3-turbo，约 $0.04/小时音频）。
+    音频下载复用本地缓存目录；转 16kHz 单声道 32kbps mp3 控制上传体积
+    （2 小时 ≈ 28MB）。GROQ_API_KEY 缺失直接失败，流水线跳下一通道。"""
+    api_key = os.getenv("GROQ_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY 未配置")
+    cdir = WHISPER_CACHE_DIR
+    cdir.mkdir(parents=True, exist_ok=True)
+    key = video_id or hashlib.sha1(url.encode()).hexdigest()[:16]
+    # 独立命名：与「恰好是 mp3 的原始直链音源」区分，防止误传原始大文件
+    mp3 = cdir / f"{key}.groq.mp3"
+    if not mp3.exists():
+        dl = _download_audio(url, key, cdir)
+        subprocess.run(["ffmpeg", "-y", "-i", str(dl), "-ar", "16000", "-ac", "1",
+                        "-b:a", "32k", str(mp3)], capture_output=True, text=True)
+        if not mp3.exists():
+            raise RuntimeError("ffmpeg 转 mp3 失败")
+    with open(mp3, "rb") as f:
+        resp = requests.post(  # 海外 API，走系统代理（默认 session）
+            "https://api.groq.com/openai/v1/audio/transcriptions",
+            headers={"Authorization": f"Bearer {api_key}"},
+            files={"file": (mp3.name, f, "audio/mpeg")},
+            data={"model": "whisper-large-v3-turbo",
+                  "response_format": "verbose_json"},
+            timeout=600,
+        )
+    if resp.status_code != 200:
+        raise RuntimeError(f"Groq 转录失败 HTTP {resp.status_code}: {resp.text[:200]}")
+    lines = _segments_to_lines(resp.json().get("segments"))
+    if not lines:
+        raise RuntimeError("Groq 返回空转录")
+    return "\n".join(lines)
+
+
 def get_transcript_whisper(url: str, video_id: str = "", lang: str = "auto") -> str:
     """本地 whisper.cpp 转录：任意平台、零 API 成本、中文质量好。
     按 video_id 缓存 wav + json 到 ~/.cache/whisper-cpp/jobs，避免重复转录/下载。
@@ -389,7 +468,7 @@ def get_transcript_whisper(url: str, video_id: str = "", lang: str = "auto") -> 
     if not shutil.which("whisper-cli"):
         raise RuntimeError("whisper-cli 未安装(brew install whisper-cpp)")
 
-    cdir = Path.home() / ".cache" / "whisper-cpp" / "jobs"
+    cdir = WHISPER_CACHE_DIR
     cdir.mkdir(parents=True, exist_ok=True)
     key = video_id or hashlib.sha1(url.encode()).hexdigest()[:16]
     jf = cdir / f"{key}.json"
@@ -397,17 +476,7 @@ def get_transcript_whisper(url: str, video_id: str = "", lang: str = "auto") -> 
     if not jf.exists():  # 没缓存才下载+转录
         wav = cdir / f"{key}.wav"
         if not wav.exists():
-            ydl = str(PROJECT_ROOT / ".venv" / "bin" / "yt-dlp")
-            if not Path(ydl).exists():
-                ydl = "yt-dlp"
-            subprocess.run([ydl, "-f", "ba/b", "--extractor-args",
-                            "youtube:player_client=android",
-                            "-o", str(cdir / f"{key}.%(ext)s"), url],
-                           capture_output=True, text=True, timeout=900)
-            dl = next((p for p in sorted(cdir.glob(f"{key}.*"))
-                       if p.suffix not in (".wav", ".json")), None)
-            if not dl:
-                raise RuntimeError("音频下载失败")
+            dl = _download_audio(url, key, cdir)
             subprocess.run(["ffmpeg", "-y", "-i", str(dl), "-ar", "16000", "-ac", "1",
                             str(wav)], capture_output=True, text=True)
             if not wav.exists():
@@ -455,14 +524,85 @@ def format_duration(seconds: int) -> str:
     return f"{m}:{s:02d}"
 
 
-def make_archive_dir(upload_date: str, title: str, item_id: str) -> Path:
+def make_archive_dir(upload_date: str, title: str, item_id: str) -> tuple[Path, bool]:
+    """返回 (目录, 是否本次新建)。created 决定失败时能否 rmtree——
+    mkdir(exist_ok=True) 可能落到既有目录（同日同名重跑、metadata 损坏
+    未被 resolve 认领），这种目录不算本次新建、不可当空壳清理。"""
     date_str = upload_date[:8] if len(upload_date) >= 8 else datetime.datetime.now().strftime("%Y%m%d")
     # Include a stable id suffix to avoid collisions on same-day duplicate/truncated titles.
     unique_suffix = hashlib.sha1(item_id.encode("utf-8")).hexdigest()[:8]
     folder_name = f"{date_str}-{sanitize_title(title)}-{unique_suffix}"
     path = ARCHIVE_DIR / folder_name
+    created = not path.exists()
     path.mkdir(parents=True, exist_ok=True)
-    return path
+    return path, created
+
+
+def resolve_archive_dir(archive_root: Path, item_id: str) -> Path | None:
+    """按 id 的 sha1 后缀查找既有归档目录，找到即复用、不再新建。
+
+    同一视频的 upload_date/title 会随抓取来源漂移（flat entry 常缺日期，
+    目录名落到当天日期），历史上导致同一 id 每天新建一个目录。目录名
+    后缀只依赖 id，据此聚合；metadata 的 id 必须与 item_id 相等（防
+    后缀撞车）。多个命中时优先 rewrite_complete=True，其次目录名最新。
+    空 id 或无命中返回 None（走原新建逻辑）。"""
+    if not item_id:
+        return None
+    suffix = hashlib.sha1(item_id.encode("utf-8")).hexdigest()[:8]
+    candidates = []
+    for d in Path(archive_root).glob(f"*-{suffix}"):
+        if not d.is_dir():
+            continue
+        try:
+            meta = json.loads((d / "metadata.json").read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if str(meta.get("id") or "") != str(item_id):
+            continue
+        candidates.append((bool(meta.get("rewrite_complete")), d.name, d))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    return candidates[0][2]
+
+
+def discard_failed_archive(archive_dir: Path, dir_created: bool, reason: str):
+    """失败清理的唯一出口：只删本次新建的空壳。
+
+    ⚠️ 不变量：复用的既有目录（dir_created=False）含付费转录等资产，
+    任何失败路径都必须原样保留。新增失败早退时一律调这里，不要手写 rmtree。"""
+    if dir_created:
+        shutil.rmtree(archive_dir, ignore_errors=True)
+        print(f"  [清理] {reason}，已删除本次新建目录（下次可重试）")
+    else:
+        print(f"  [保留] {reason}，复用目录不删除（含既有资产，下次可重试）")
+
+
+def read_existing_transcript(archive_dir: Path) -> tuple[str, str]:
+    """读取复用目录里已有的有效转录正文，返回 (正文, 来源)。
+
+    转录是最贵资产（BibiGPT 按时长计费）——复用目录时若已有有效转录，
+    直接用正文、完全跳过转录链。失败标记/空正文视为无效，返回 ("", "")。"""
+    tp = archive_dir / "transcript.md"
+    if not tp.exists():
+        return "", ""
+    try:
+        raw = tp.read_text(encoding="utf-8")
+    except Exception:
+        return "", ""
+    body, source = raw, ""
+    if raw.startswith("---"):
+        end = raw.find("\n---", 3)
+        if end != -1:
+            header = raw[3:end]
+            m = re.search(r"^transcript_source:\s*(\S+)", header, re.MULTILINE)
+            if m:
+                source = m.group(1)
+            body = raw[end + 4:]
+    body = body.strip()
+    if not body or body.startswith((FAIL_MARK_ERROR, FAIL_MARK_EMPTY)):
+        return "", ""
+    return body, (source if source and source != "none" else "existing")
 
 
 def download_thumbnail(url: str, dest: Path) -> bool:
@@ -495,8 +635,14 @@ def process_item(item: VideoItem) -> bool | None:
     """处理单个内容项，返回 True=完全成功, False=异常失败, None=转录失败可重试"""
     print(f"\n处理: {item.title[:60]}")
     try:
-        # 1. 创建归档目录
-        archive_dir = make_archive_dir(item.upload_date, item.title, item.id)
+        # 1. 归档目录：先按 id 复用既有目录（防同一内容重复建目录），无命中才新建
+        reused_dir = resolve_archive_dir(ARCHIVE_DIR, item.id)
+        if reused_dir is not None:
+            archive_dir = reused_dir
+            dir_created = False
+            print(f"  [复用] 已有归档目录: {archive_dir.name}")
+        else:
+            archive_dir, dir_created = make_archive_dir(item.upload_date, item.title, item.id)
         meta_path = archive_dir / "metadata.json"
         if meta_path.exists():
             existing = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -508,9 +654,17 @@ def process_item(item: VideoItem) -> bool | None:
         transcript = ""
         transcript_source = ""
         transcript_error = ""
+        transcript_reused = False
+
+        # 复用目录里已有的有效转录：直接用正文，跳过整条转录链（避免 BibiGPT 复费）
+        if not dir_created:
+            transcript, transcript_source = read_existing_transcript(archive_dir)
+            if transcript:
+                transcript_reused = True
+                print(f"  [复用] 已有转录 ({len(transcript)} 字符, 来源: {transcript_source})")
 
         # 免费方案（仅 YouTube 可用）：baoyu → youtube-transcript-api
-        if item.platform == "youtube":
+        if not transcript and item.platform == "youtube":
             try:
                 print("  [免费1] baoyu-youtube-transcript ...")
                 transcript = get_transcript_baoyu(item.url, archive_dir)
@@ -526,26 +680,38 @@ def process_item(item: VideoItem) -> bool | None:
                 except Exception as e_ytapi:
                     print(f"  [WARN] 免费方案全失败: {e_ytapi}")
 
-        # 免费方案·本地 whisper.cpp（任意平台、零 API 成本、中文质量好）
+        # 云端优先原则（2026-07-11 用户拍板）：免费字幕 API → Groq 云端 whisper
+        # （几分钱）→ BibiGPT 全托管付费 → whisper 本地（最最兜底）
         if not transcript:
             try:
-                print("  [免费·本地] whisper.cpp 转录中（中文，首次约 10-15 分钟）...")
-                transcript = get_transcript_whisper(item.url, item.id)
-                transcript_source = "whisper-local"
-                print(f"  [OK] 本地 whisper 转录成功 ({len(transcript)} 字符)")
-            except Exception as e_w:
-                print(f"  [WARN] 本地 whisper 失败: {e_w}")
+                print("  [云端] Groq whisper 转录中（约 $0.04/小时音频）...")
+                transcript = get_transcript_groq(item.url, item.id)
+                transcript_source = "groq-whisper"
+                print(f"  [OK] Groq 转录成功 ({len(transcript)} 字符)")
+            except Exception as e_groq:
+                print(f"  [WARN] Groq 失败: {e_groq}")
 
-        # 仍拿不到 → BibiGPT 付费兜底
+        # 全托管付费云（他们服务器抓取，本地下载被反爬拦时的接棒者）
         if not transcript:
             try:
-                print("  [BibiGPT] 获取转录中（付费兜底）...")
+                print("  [BibiGPT] 获取转录中（付费）...")
                 transcript = get_transcript_bibigpt(item.url)
                 transcript_source = "bibigpt"
                 print(f"  [OK] BibiGPT 转录成功 ({len(transcript)} 字符)")
             except Exception as e_bibi:
                 transcript_error = str(e_bibi)
                 print(f"  [WARN] BibiGPT 失败: {e_bibi}")
+
+        # 本地 whisper.cpp 最最兜底（零 API 成本但慢，首次约 10-15 分钟）
+        if not transcript:
+            try:
+                print("  [本地兜底] whisper.cpp 转录中...")
+                transcript = get_transcript_whisper(item.url, item.id)
+                transcript_source = "whisper-local"
+                print(f"  [OK] 本地 whisper 转录成功 ({len(transcript)} 字符)")
+            except Exception as e_w:
+                transcript_error = transcript_error or str(e_w)
+                print(f"  [WARN] 本地 whisper 失败: {e_w}")
 
         # 3. 写 transcript.md
         transcript_path = archive_dir / "transcript.md"
@@ -566,19 +732,41 @@ transcript_source: {transcript_source or 'none'}
         if transcript:
             transcript_content += transcript
         elif transcript_error:
-            transcript_content += f"[转录获取失败: {transcript_error}]"
+            transcript_content += f"{FAIL_MARK_ERROR}: {transcript_error}]"
         else:
-            transcript_content += "[无可用转录]"
-        transcript_path.write_text(transcript_content, encoding="utf-8")
+            transcript_content += f"{FAIL_MARK_EMPTY}]"
+        if not transcript_reused:
+            # 复用的转录不重写文件：原 front-matter（真实抓取日期/来源）比
+            # flat entry 的漂移信息更可信，且保证复用目录字节不变
+            transcript_path.write_text(transcript_content, encoding="utf-8")
 
-        # 4. 下载封面
+        # 4. 下载封面（复用目录已有封面时跳过）
         cover_path = archive_dir / "cover.jpg"
-        download_thumbnail(item.thumbnail_url, cover_path)
+        if dir_created or not any(archive_dir.glob("cover.*")):
+            download_thumbnail(item.thumbnail_url, cover_path)
 
         # 5. 写 metadata.json
         meta = {
             **asdict(item),
             "archive_dir": str(archive_dir),
+        }
+        if not dir_created and meta_path.exists():
+            # flat entry 的元信息常缺失/漂移（upload_date 为空、duration=0、标题
+            # 落到「未知标题」等占位值）；复用目录时，既有 metadata 里的有效值
+            # 比新 item 的空值/占位值可信
+            _PLACEHOLDERS = ("None", "未知", "未知标题", "未知集", "直接链接")
+            try:
+                prev = json.loads(meta_path.read_text(encoding="utf-8"))
+                for k in ("upload_date", "title", "uploader", "thumbnail_url",
+                          "description", "duration"):
+                    prev_v, new_v = prev.get(k), meta.get(k)
+                    if prev_v in (None, "", 0, "None"):
+                        continue
+                    if not new_v or str(new_v) in _PLACEHOLDERS:
+                        meta[k] = prev_v
+            except Exception:
+                pass
+        meta.update({
             "processed_at": datetime.datetime.utcnow().isoformat() + "Z",
             "transcript_available": bool(transcript),
             "transcript_source": transcript_source,
@@ -588,7 +776,7 @@ transcript_source: {transcript_source or 'none'}
             "feishu_doc_synced": False,
             "feishu_doc_id": None,
             "feishu_doc_url": None,
-        }
+        })
         meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
         # 6. 调用 rewrite.js
@@ -607,12 +795,11 @@ transcript_source: {transcript_source or 'none'}
                 print(f"  [WARN] rewrite.js 失败 (exit {result.returncode})")
                 if result.stderr:
                     print(f"       {result.stderr[:300]}")
-                shutil.rmtree(archive_dir, ignore_errors=True)  # 改写失败也清空壳
+                discard_failed_archive(archive_dir, dir_created, "改写失败")
                 return False
         else:
             print("  [跳过] 无转录文本，跳过 AI 改写")
-            shutil.rmtree(archive_dir, ignore_errors=True)  # 清理空壳，不留垃圾目录
-            print("  [清理] 已删除未完成目录（下次可重试）")
+            discard_failed_archive(archive_dir, dir_created, "无可用转录")
             return None  # 转录失败，不写入 state，下次可重试
 
         return True

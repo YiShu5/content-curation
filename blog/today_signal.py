@@ -260,6 +260,11 @@ def _quote_text(item):
     return raw.strip().strip("“”\"'").strip()
 
 
+# 公共别名：金句归一化已是跨模块契约——app.quote_anchor 的锚点身份、
+# make_quote_shots 的卡片文案都依赖同一语义。改动此函数需同步考虑三处。
+quote_text = _quote_text
+
+
 def _quote_speaker(record, quote_item=None):
     """从 quote/嘉宾/创作者里尽量取一个“谁说的”。"""
     if isinstance(quote_item, dict):

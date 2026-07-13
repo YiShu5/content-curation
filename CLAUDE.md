@@ -17,7 +17,7 @@
 - 记录 `id` = metadata 的 `id`（视频 id / audio-xxx）；详情页 `/article/<id>`、向量索引、今日信号都按这个 id 对齐。
 - 封面走本地：`/cover-local/<archive_dir>` 直接发 archive 里的 cover.*。
 - ⚠️ 改完 fetch 新内容后，**首页/详情立刻可见(实时读 archive)，但语义搜索/相关推荐/今日信号要 `run.sh embed` 重建索引才会纳入**。
-- 旧的飞书读取链路（`fetch_records`/`_enrich_from_local`/`_build_local_index`/`cover_proxy`）保留为 legacy，未删但已不被路由调用。
+- 旧的飞书读取链路（`fetch_records`/`_enrich_from_local`/`_build_local_index`/`cover_proxy`）已于 2026-07 删除（git 历史可查）；飞书仅剩 `scripts/sync-feishu*.js` 的写出方向。
 - 「今日必读」优先关联库内深度内容；库内无匹配时，生成两个 YouTube 搜索词并用互补性重排，只展示 ≥75 分的一个视频，用户二次确认后才入库。
 - YouTube 搜索前的 CLI 探活改编自 Agent-Reach（MIT），来源与许可见 `THIRD_PARTY_NOTICES.md`。
 
@@ -27,6 +27,10 @@
 - 重打分用 `scripts/rescore.py`（从已有摘要重算，不重跑整条流水线）。
 - ⚠️ `sync-feishu.js` 只**新建**记录、不更新已有；重跑生成的 archive 其 `feishu_record_id` 为 null，直接 sync 会产生重复记录。
 
-## 转录
-- BibiGPT 为主（按**时长**计费，注意余额），baoyu 免费降级**仅支持 YouTube**。
+## 去重与清理（2026-07）
+- fetch.py 建目录前按 id 的 sha1 后缀复用既有归档（`resolve_archive_dir`），同一视频不再因日期/标题漂移每天新建目录；复用目录里的有效转录直接复用，失败时**不 rmtree**（只清理本次新建的空壳）。
+- 存量重复目录用 `scripts/cleanup_dup_archives.py` 清理：默认 dry-run，`--apply` 把冗余份**移动**到 `archive/_duplicates_quarantine/`（绝不删除，转录是付费资产）。
+
+## 转录（2026-07 云端优先）
+- 顺序：免费字幕 API（baoyu/ytapi，**仅 YouTube**）→ Groq 云端 whisper（约 $0.04/小时，需 `GROQ_API_KEY`，无 key 自动跳过）→ BibiGPT（全托管付费，按**时长**计费注意余额）→ whisper 本地（最最兜底，慢）。
 - 小红书/online-media 的字幕在 `detail.subtitlesArray`（fetch.py 已处理）。

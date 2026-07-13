@@ -6,13 +6,17 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
 {%- endmacro %}
 
 {% macro render_deep(signal) -%}
-    {% if signal.links %}
+    {% set l = signal.links[0] if signal.links else none %}
+    {% if l and (l.record_id or l.deeplink) %}
+    {# 站内优先：有 record_id 时主链进详情页（带金句锚点），外部时间戳链降级为次要动作；
+       旧缓存 link 缺 record_id 时回退外链，record_id/deeplink 均缺时整块不渲染 #}
+    {% set anchor = (l.quote | quote_anchor) if l.quote else '' %}
+    {% set article_url = ('/article/' ~ (l.record_id | urlencode) ~ ('#' ~ anchor if anchor else '')) if l.record_id else '' %}
     <div class="signal-deep signal-deep-local">
         <div class="signal-deep-label">
-            {% if signal.links[0].quote %}你库里的相关金句{% else %}你库里的金句补充{% endif %}
+            {% if l.quote %}你库里的相关金句{% else %}你库里的金句补充{% endif %}
         </div>
-        {% for l in signal.links[:1] %}
-        <a href="{{ l.deeplink }}" target="_blank" rel="noopener" class="signal-link {% if l.quote %}signal-quote-link{% endif %}"
+        <a href="{{ article_url or l.deeplink }}"{% if not article_url %} target="_blank" rel="noopener"{% endif %} class="signal-link {% if l.quote %}signal-quote-link{% endif %}"
            {{ track_attrs('open_local', signal, 'library', l.record_id) }}>
             {% if l.quote %}
             <span class="signal-quote-mark">“</span>
@@ -28,9 +32,12 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
             <span class="signal-link-platform">{{ l.platform or '深度库' }}</span>
             <span class="signal-link-title">{{ l.title }}</span>
             {% endif %}
-            {% if l.ts %}<span class="signal-link-ts">从 {{ l.ts }} 看</span>{% endif %}
+            {% if not article_url and l.ts %}<span class="signal-link-ts">从 {{ l.ts }} 看</span>{% endif %}
         </a>
-        {% endfor %}
+        {% if article_url and l.deeplink %}
+        <a class="signal-link-origin" href="{{ l.deeplink }}" target="_blank" rel="noopener"
+           {{ track_attrs('open_origin', signal, 'library', l.record_id) }}>原片{% if l.ts %} {{ l.ts }}{% endif %} ↗</a>
+        {% endif %}
     </div>
     {% elif signal.suggest %}
     <div class="signal-deep signal-deep-external">
@@ -86,9 +93,33 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
         </div>
         <div class="signals-head-actions">
             <span class="signals-note">每条只回答：值不值得继续看</span>
+            {% if signals or breaking %}
+            <button class="signals-share-btn" id="signalsShareBtn" type="button">分享今日卡</button>
+            {% endif %}
             <button class="signals-collapse" id="signalsCollapse" type="button" aria-expanded="true">收起</button>
         </div>
     </div>
+
+    {% if signals or breaking %}
+    {# 今日卡「复制文字版」的数据源；JS 读取后拼纯文本 #}
+    <script type="application/json" id="sc-copy-data">{{ {
+        "generated_at": signal_meta.generated_at or "",
+        "breaking": breaking,
+        "signals": signals
+    } | tojson }}</script>
+    <div class="qc-modal sc-modal" id="sc-modal" hidden>
+        <div class="qc-backdrop"></div>
+        <div class="qc-panel qc-panel-wide">
+            <div class="qc-status" id="sc-status">生成中…</div>
+            <img id="sc-img" alt="今日 AI 判断日卡" hidden>
+            <div class="qc-actions">
+                <a id="sc-download" class="qc-btn" href="/signal-card.png" download="daily-signal.png">下载 PNG</a>
+                <button id="sc-copy" class="qc-btn" type="button">复制文字版</button>
+                <button id="sc-close" class="qc-btn" type="button">关闭</button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 
     {% if signal_meta.freshness and signal_meta.freshness.status in ['expired', 'missing', 'invalid'] %}
     <div class="signals-state signals-state-{{ signal_meta.freshness.status }}">
@@ -241,20 +272,45 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
                 return job;
             });
         }
+        function renderIngestDone(b, job, label) {
+            // 入库闭环收尾：有 record_id 时按钮变成「查看 →」站内链接；
+            // 旧格式 job（无 record_id）回退为 disabled 文案
+            if (job.record_id) {
+                var link = document.createElement('a');
+                link.className = 'signal-watch-link';
+                link.href = '/article/' + encodeURIComponent(job.record_id);
+                link.textContent = label + ' · 查看 →';
+                link.setAttribute('data-track-kind', 'open_local');
+                link.setAttribute('data-track-slot', b.dataset.trackSlot || '');
+                link.setAttribute('data-track-source', 'library');
+                link.setAttribute('data-track-item-id', job.record_id);
+                b.replaceWith(link);
+            } else {
+                b.textContent = label;
+                b.disabled = true;
+            }
+        }
         function renderIngestButton(b, job) {
             job = job || {};
             var status = job.status || '';
             b.dataset.jobId = job.job_id || b.dataset.jobId || '';
             if (status === 'queued') b.textContent = '已提交';
             else if (status === 'running') b.textContent = '入库中…';
-            else if (status === 'done') { b.textContent = '已加入深度库'; b.disabled = true; }
-            else if (status === 'exists') { b.textContent = '已在深度库'; b.disabled = true; }
+            else if (status === 'done') renderIngestDone(b, job, '已加入深度库');
+            else if (status === 'exists') renderIngestDone(b, job, '已在深度库');
             else if (status === 'failed') renderIngestFailure(b, job, '入库失败');
             else if (status === 'bad_url') renderIngestFailure(b, job, '只支持 YouTube 视频链接');
             else if (status === 'not_found') renderIngestFailure(b, job, '任务不存在，请重试');
             else renderIngestFailure(b, job, '状态异常，请重试');
         }
-        function pollIngest(b) {
+        function pollIngest(b, attempts) {
+            attempts = attempts || 0;
+            // fetch + refresh 两步 subprocess 各有 30 分钟超时，上限设 ~60 分钟；
+            // 超限不代表失败，只是停止轮询
+            if (attempts >= 1200) {
+                b.textContent = '入库仍在后台进行，稍后刷新页面查看';
+                return;
+            }
             var jobId = b.dataset.jobId || '';
             if (!jobId) return;
             fetch('/ingest/status?job_id=' + encodeURIComponent(jobId))
@@ -262,12 +318,15 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
                 .then(function (job) {
                     renderIngestButton(b, job);
                     if (job.status === 'queued' || job.status === 'running') {
-                        setTimeout(function () { pollIngest(b); }, 3000);
+                        setTimeout(function () { pollIngest(b, attempts + 1); }, 3000);
                     }
                 })
                 .catch(function () {
-                    b.textContent = '状态未知';
-                    b.disabled = false;
+                    // 瞬时网络错误（休眠恢复/服务重启）不放弃：保持禁用继续轮询，
+                    // 上限由函数顶部的 attempts 检查兜底。重新启用按钮会诱发
+                    // 二次点击 → deep_library 埋点重复计权（权重 3.0）。
+                    b.textContent = '状态未知，重试中…';
+                    setTimeout(function () { pollIngest(b, attempts + 1); }, 3000);
                 });
         }
         document.querySelectorAll('.signal-ingest-btn').forEach(function (b) {
@@ -342,6 +401,62 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
                     });
             });
         });
+
+        // 今日卡：分享按钮 → 弹层预览（后端按 generated_at 缓存渲染）+ 下载/复制文字版
+        var shareBtn = document.getElementById('signalsShareBtn');
+        var scModal = document.getElementById('sc-modal');
+        if (shareBtn && scModal) {
+            var scImg = document.getElementById('sc-img');
+            var scStatus = document.getElementById('sc-status');
+            var scCopyText = '';
+            try {
+                var d = JSON.parse(document.getElementById('sc-copy-data').textContent);
+                var parts = ['降噪 · 今日 AI 判断 · ' + (d.generated_at || '')];
+                if (d.breaking) {
+                    parts.push('🔴 ' + (d.breaking.title || '') +
+                        (d.breaking.action ? '（' + d.breaking.action + '）' : '') +
+                        '\n' + (d.breaking.summary || ''));
+                }
+                (d.signals || []).forEach(function (s) {
+                    parts.push('▍' + (s.slot_label || '') + '｜' + (s.title || '') +
+                        '\n' + (s.summary || '') +
+                        (s.why ? '\n→ ' + s.why : ''));
+                });
+                scCopyText = parts.join('\n\n');
+            } catch (e) { /* 数据缺失时复制按钮退化为空文本 */ }
+
+            shareBtn.addEventListener('click', function () {
+                scStatus.textContent = '生成中…';
+                scStatus.hidden = false;
+                scImg.hidden = true;
+                scImg.removeAttribute('src');
+                scModal.hidden = false;
+                scImg.onload = function () { scStatus.hidden = true; scImg.hidden = false; };
+                scImg.onerror = function () { scStatus.textContent = '生成失败，稍后重试'; };
+                scImg.src = '/signal-card.png';
+                track({ kind: 'share_card', label: '今日卡', href: '/signal-card.png',
+                        slot: '', source: 'signals', item_id: '' });
+            });
+            document.getElementById('sc-copy').addEventListener('click', function () {
+                var btn = this;
+                function done() {
+                    btn.textContent = '已复制 ✓';
+                    setTimeout(function () { btn.textContent = '复制文字版'; }, 1500);
+                }
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(scCopyText).then(done);
+                } else {
+                    var ta = document.createElement('textarea');
+                    ta.value = scCopyText;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    try { document.execCommand('copy'); done(); } catch (e) { /* 忽略 */ }
+                    ta.remove();
+                }
+            });
+            document.getElementById('sc-close').addEventListener('click', function () { scModal.hidden = true; });
+            scModal.querySelector('.qc-backdrop').addEventListener('click', function () { scModal.hidden = true; });
+        }
     })();
     </script>
 </section>

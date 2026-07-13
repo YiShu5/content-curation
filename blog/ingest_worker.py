@@ -31,6 +31,17 @@ def main(job_id):
         raise SystemExit(f"missing job: {job_id}")
     url = job.get("url") or ""
     jobs.update_job(job_id, status="running", message="正在抓取和改写")
+    try:
+        run_pipeline(job_id, url)
+    except Exception as e:
+        # 未捕获异常（TimeoutExpired/FileNotFoundError 等）会让 job 永卡
+        # running，且 start_job 会把后续重试挡回这个僵尸 job——必须置 failed。
+        jobs.update_job(job_id, status="failed",
+                        message=(f"入库异常：{type(e).__name__}: {e}")[:500],
+                        return_code=-1)
+
+
+def run_pipeline(job_id, url):
     fetch_cmd = [str(ROOT / ".venv" / "bin" / "python"), str(ROOT / "scripts" / "fetch.py"), "--url", url]
     fetch = _run(fetch_cmd)
     if fetch.returncode != 0:
@@ -51,7 +62,9 @@ def main(job_id):
         jobs.update_job(job_id, status="failed", message=f"刷新失败：{detail}", return_code=refresh.returncode)
         return
     archive = jobs.find_existing_archive(url) or archive
-    jobs.update_job(job_id, status="done", message="已加入深度库", archive_dir=archive, return_code=0)
+    jobs.update_job(job_id, status="done", message="已加入深度库", archive_dir=archive,
+                    record_id=jobs.archive_record_id(archive) or jobs.video_id_from_key(job_id),
+                    return_code=0)
 
 
 if __name__ == "__main__":

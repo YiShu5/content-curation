@@ -1,7 +1,7 @@
 """
 语义搜索 - 基于智谱 embedding-3 的内容向量索引
 
-- 索引键: feishu_record_id（与博客卡片/详情页同一主键）
+- 索引键: metadata 的 id（视频 id / audio-xxx，与博客卡片/详情页同一主键）
 - 存储: blog/data/embeddings.json，每项 {record_id, text_hash, model, dim, vector}
 - 检索: numpy 暴力余弦相似度（内容规模小，无需向量数据库）
 - 增量: 文本 sha1 未变且模型/维度一致则复用旧向量，避免重复调用 API
