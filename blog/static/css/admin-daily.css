@@ -1,0 +1,50 @@
+.daily-admin-open { border: 1px solid #17191c; background: #fff; padding: .65rem 1rem; font-weight: 800; cursor: pointer; }
+.daily-admin-open span { color: #e85c55; margin-right: .35rem; }
+.daily-admin-open:disabled { cursor: not-allowed; opacity: .45; }
+.daily-admin-unavailable { max-width: 18rem; color: #8a332e; font-size: .78rem; line-height: 1.35; }
+.daily-admin-dialog { width: min(920px, calc(100vw - 2rem)); max-width: 920px; max-height: 90vh; padding: 0; border: 1px solid #17191c; background: #f8f6f0; }
+.daily-admin-dialog::backdrop { background: rgb(17 20 24 / 68%); }
+.daily-admin-shell { max-height: 90vh; overflow: auto; }
+.daily-admin-shell > header, .daily-admin-shell > footer { position: sticky; z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem; background: #f8f6f0; border-color: #17191c; }
+.daily-admin-shell > header { top: 0; border-bottom: 1px solid; }
+.daily-admin-shell > footer { bottom: 0; justify-content: flex-end; border-top: 1px solid; }
+.daily-admin-shell > header span { font: 700 .7rem/1.2 ui-monospace, monospace; letter-spacing: .12em; color: #2e9fe6; }
+.daily-admin-shell h2 { margin: .15rem 0 0; font-family: "Noto Serif SC", serif; }
+.daily-admin-shell button { min-height: 2.4rem; border: 1px solid #17191c; background: #fff; padding: .45rem .75rem; cursor: pointer; }
+.daily-admin-shell button:disabled { cursor: not-allowed; opacity: .4; }
+.daily-admin-meta, .daily-admin-revision, .daily-admin-shell > [role="status"], .daily-admin-add { margin: 1rem 1.25rem; }
+.daily-admin-error { color: #a22d25; font-weight: 700; }
+.daily-admin-warning { color: #805700; }
+.daily-admin-rows { display: grid; gap: 1rem; padding: 0 1.25rem; }
+.daily-admin-row { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; padding: 1.2rem; border: 1px solid #b9b5aa; background: #fff; box-shadow: 4px 4px 0 #dceef8; }
+.daily-admin-rank { position: absolute; top: -.65rem; left: -.65rem; display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; color: #fff; background: #17191c; }
+.daily-admin-drag { justify-self: start; font: 700 .7rem ui-monospace, monospace; color: #68645c; cursor: grab; }
+.daily-admin-row-controls { justify-self: end; display: flex; gap: .4rem; }
+.daily-admin-field { display: grid; gap: .35rem; font-weight: 700; }
+.daily-admin-field:nth-of-type(n+3) { grid-column: 1 / -1; }
+.daily-admin-field input, .daily-admin-field textarea, .daily-admin-add select, .daily-admin-replace select { width: 100%; box-sizing: border-box; border: 1px solid #8b877e; border-radius: 0; background: #fff; padding: .65rem; font: inherit; font-weight: 400; }
+.daily-admin-field textarea { min-height: 5rem; resize: vertical; }
+.daily-admin-evidence { grid-column: 1 / -1; padding: .8rem; border: 1px dashed #969188; background: #f6f4ee; }
+.daily-admin-source { display: grid; grid-template-columns: auto 1fr auto auto; gap: .8rem; align-items: center; padding: .55rem 0; border-bottom: 1px solid #dedbd3; }
+.daily-admin-source:last-child { border-bottom: 0; }
+.daily-admin-source p { margin: 0; }
+.daily-admin-replace { grid-column: 1 / -1; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .6rem; }
+.daily-admin-add { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .75rem; font-weight: 700; }
+.daily-admin-preview { margin: 1.25rem; padding: .75rem; border: 2px solid #2e9fe6; background: #fff; }
+.daily-admin-preview iframe { width: 100%; min-height: 34rem; border: 0; }
+
+@media (max-width: 680px) {
+  .daily-admin-unavailable { max-width: 9rem; font-size: .68rem; }
+  .daily-admin-dialog { width: 100vw; max-height: 100dvh; }
+  .daily-admin-shell { max-height: 100dvh; }
+  .daily-admin-row { grid-template-columns: 1fr; }
+  .daily-admin-field:nth-of-type(n+3), .daily-admin-evidence, .daily-admin-replace { grid-column: auto; }
+  .daily-admin-drag { display: none; }
+  .daily-admin-row-controls { justify-self: stretch; }
+  .daily-admin-row-controls button { flex: 1; }
+  .daily-admin-source, .daily-admin-add, .daily-admin-replace { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .daily-admin-dialog, .daily-admin-dialog * { scroll-behavior: auto; transition: none !important; }
+}

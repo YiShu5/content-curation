@@ -287,7 +287,10 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
                 b.textContent = '入库中…';
                 fetch('/ingest', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': {{ admin_csrf_token|tojson }}
+                    },
                     body: JSON.stringify({ url: url, title: title })
                 })
                     .then(parseIngestResponse)
@@ -312,7 +315,10 @@ data-track-item-id="{{ item_id or signal.item_id or '' }}"
                 b.textContent = action === 'promote' ? '加入中…' : '已忽略…';
                 fetch('/signal/attention', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': {{ admin_csrf_token|tojson }}
+                    },
                     body: JSON.stringify({
                         action: action,
                         item_id: b.dataset.itemId || '',

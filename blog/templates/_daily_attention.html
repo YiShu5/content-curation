@@ -1,0 +1,17 @@
+{% if issue.attention %}
+<section class="daily-attention" aria-labelledby="dailyAttentionTitle">
+  <header>
+    <p>还没进入今日三条</p>
+    <h2 id="dailyAttentionTitle">热议浮现</h2>
+  </header>
+  <div class="daily-attention-list">
+    {% for item in issue.attention %}
+    <article class="daily-attention-item">
+      <span>{{ {'rising':'讨论上升中','watch':'继续观察','stable':'讨论稳定'}.get(item.attention_status, '继续观察') }}</span>
+      <h3>{{ item.title }}</h3>
+      <p>{{ item.what_happened }}</p>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}

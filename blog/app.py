@@ -6,10 +6,12 @@ import json
 import html
 import os
 import time
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
-from flask import Flask, render_template, abort, Response, request, send_file
+from flask import Flask, render_template, abort, Response, request, send_file, redirect, url_for
 
 import re as _re
 from urllib.parse import quote as _urlquote
@@ -53,11 +55,59 @@ if _env_path.exists():
 
 from config import Config
 from product_schema import TOPICS
+import admin_auth
+from daily_issues import (
+    DAILY_TEXT_LIMITS,
+    DailyIssueCorrupt,
+    DailyIssueConflict,
+    DailyIssueStore,
+    DailyIssueValidationError,
+    format_share_text,
+    validate_issue_date,
+)
+import daily_editor
 
 app = Flask(__name__)
 app.config.from_object(Config)
+if app.config["BLOG_ADMIN_PASSWORD"] and app.config["SECRET_KEY"] == "content-curation-blog-2026":
+    raise RuntimeError("set a private SECRET_KEY before enabling admin login")
 app.jinja_env.filters['markdown'] = _render_markdown
 app.jinja_env.filters['strip_md'] = _strip_markdown
+
+
+@app.context_processor
+def admin_template_context():
+    return {
+        "is_admin": admin_auth.is_admin(),
+        "admin_csrf_token": admin_auth.csrf_token() if admin_auth.is_admin() else "",
+    }
+
+
+@app.after_request
+def prevent_admin_cache(response):
+    if (
+        request.path.startswith(("/admin/", "/ingest", "/signal/attention"))
+        or (admin_auth.is_admin() and response.mimetype == "text/html")
+    ):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    if request.method == "POST":
+        admin_auth.validate_csrf()
+        if not admin_auth.login_admin(request.form.get("password", "")):
+            return render_template("admin_login.html", error="密码不正确", csrf_token=admin_auth.csrf_token()), 401
+        return redirect(url_for("index"))
+    return render_template("admin_login.html", error="", csrf_token=admin_auth.csrf_token())
+
+
+@app.post("/admin/logout")
+@admin_auth.admin_required
+def admin_logout():
+    admin_auth.logout_admin()
+    return redirect(url_for("index"))
 
 # ── 飞书 API（legacy，博客已改读本地 archive，不再调用）──────────────────────
 _token_cache = {"token": "", "expiry": 0}
@@ -255,6 +305,211 @@ def load_archive_records():
 
 
 # ── 路由 ──────────────────────────────────────────────────────────────────
+def _issue_store():
+    return DailyIssueStore(
+        Path(app.config["DAILY_ISSUES_DIR"]),
+        app.config["BLOG_TIMEZONE"],
+    )
+
+
+def _local_now():
+    return datetime.now(ZoneInfo(app.config["BLOG_TIMEZONE"]))
+
+
+def _stable_issue_url(issue_date):
+    base = str(app.config.get("PUBLIC_BASE_URL") or "").rstrip("/")
+    if base:
+        return f"{base}/daily/{issue_date}"
+    return url_for("daily_issue", issue_date=issue_date, _external=True)
+
+
+def _issue_view(issue, *, is_home, daily_error=""):
+    today = _local_now().date().isoformat()
+    issue_date = issue.get("issue_date") if issue else ""
+    canonical = _stable_issue_url(issue_date) if issue_date else ""
+    admin = admin_auth.is_admin()
+    admin_action = "publish" if is_home and issue_date != today else ("revise" if issue else "publish")
+    admin_target_date = issue_date if admin_action == "revise" else today
+    public_base = str(app.config.get("PUBLIC_BASE_URL") or request.url_root).rstrip("/")
+    draft_available = True
+    draft_message = ""
+    if admin:
+        try:
+            if admin_action == "revise":
+                _issue_store().assert_revisable(admin_target_date)
+            else:
+                _issue_store().next_issue_number()
+                import today_signal
+                daily_editor.trusted_draft(
+                    today_signal.read_signal_cache() or {}, expected_date=today
+                )
+        except (DailyIssueCorrupt, DailyIssueConflict, ValueError) as exc:
+            draft_available = False
+            draft_message = str(exc)
+    return {
+        "issue": issue,
+        "daily_error": daily_error,
+        "is_home": is_home,
+        "is_current_day": issue_date == today,
+        "canonical_url": canonical,
+        "og_image_url": f"{public_base}/static/og-daily.png",
+        "share_text": format_share_text(issue, canonical) if issue else "",
+        "is_admin": admin,
+        "admin_action": admin_action,
+        "admin_target_date": admin_target_date,
+        "current_issue_date": today,
+        "current_revision": issue.get("revision") if issue and admin_action == "revise" else None,
+        "csrf_token": admin_auth.csrf_token() if admin else "",
+        "draft_available": draft_available,
+        "draft_message": draft_message,
+        "editor_limits": DAILY_TEXT_LIMITS if admin else {},
+    }
+
+
+def _trusted_editor_draft(issue_date, *, today, store):
+    import today_signal
+    published = store.get(issue_date)
+    if published:
+        published = store.assert_revisable(issue_date)
+        current = None
+        if issue_date == today:
+            try:
+                current = daily_editor.trusted_draft(
+                    today_signal.read_signal_cache() or {}, expected_date=today
+                )
+            except ValueError:
+                pass
+        return daily_editor.revision_draft(published, current), published
+    if issue_date != today:
+        return None, None
+    return daily_editor.trusted_draft(
+        today_signal.read_signal_cache() or {}, expected_date=today
+    ), None
+
+
+def _selected_attention(draft, selected_topics):
+    selected_ids = {str(row.get("topic_id") or "") for row in selected_topics}
+    result, seen = [], set()
+    for row in draft.get("attention") or []:
+        topic_id = str(row.get("topic_id") or "")
+        if not topic_id or topic_id in selected_ids or topic_id in seen or len(result) >= 3:
+            continue
+        item = dict(row)
+        item["attention_status"] = item.get("attention_status") or "watch"
+        result.append(item)
+        seen.add(topic_id)
+    return result
+
+
+@app.get("/admin/daily/draft")
+@admin_auth.admin_required
+def admin_daily_draft():
+    today = _local_now().date().isoformat()
+    issue_date = request.args.get("date") or today
+    try:
+        validate_issue_date(issue_date)
+        store = _issue_store()
+        draft, published = _trusted_editor_draft(issue_date, today=today, store=store)
+        if draft is None:
+            return {"status": "not_found"}, 404
+        issue_number = published["issue_number"] if published else store.next_issue_number()
+    except DailyIssueValidationError as exc:
+        return {"status": "bad_date", "message": str(exc)}, 400
+    except DailyIssueCorrupt as exc:
+        return {"status": "storage_corrupt", "code": "storage_corrupt", "message": str(exc)}, 503
+    except ValueError as exc:
+        return {"status": "unavailable", "message": str(exc)}, 409
+    return {"status": "ok", "draft": draft, "published": published,
+            "issue_meta": {"issue_date": issue_date, "issue_number": issue_number,
+                           "revision": published["revision"] if published else 0,
+                           "generated_at": draft.get("generated_at") or ""}}
+
+
+def _editor_request(issue_date, action):
+    today = _local_now().date().isoformat()
+    body = request.get_json(silent=True)
+    if body is None:
+        body = {}
+    if not isinstance(body, dict):
+        return {"status": "bad_request", "message": "JSON 请求体必须为对象"}, 400
+    try:
+        validate_issue_date(issue_date)
+        if action == "publish" and issue_date != today:
+            return {"status": "unavailable", "message": "首次发布仅限当日"}, 409
+        store = _issue_store()
+        try:
+            draft, published = _trusted_editor_draft(issue_date, today=today, store=store)
+        except ValueError as exc:
+            return {"status": "unavailable", "message": str(exc)}, 409
+        if action == "publish" and published:
+            return {"status": "conflict", "code": "already_published"}, 409
+        if action in {"preview", "revise"} and issue_date != today and not published:
+            return {"status": "not_found"}, 404
+        if draft is None:
+            return {"status": "unavailable"}, 409
+        selected = daily_editor.apply_selection(draft, body.get("topics"))
+        attention = _selected_attention(draft, selected)
+        if action == "preview":
+            surface = body.get("preview_surface")
+            if surface not in {"home", "dated"}:
+                return {"status": "bad_request", "message": "preview_surface 无效"}, 400
+            issue = store.preview(issue_date, selected, attention, now=_local_now())
+            rendered = render_template("_daily_brief.html", issue=issue, daily_error="",
+                                       is_home=surface == "home", is_current_day=issue_date == today)
+            return {"status": "ok", "html": rendered}
+        if action == "publish":
+            issue = store.publish(issue_date, selected, attention, now=_local_now())
+            status_code, event_kind = 201, "publish"
+        else:
+            expected = body.get("expected_revision")
+            if isinstance(expected, bool) or not isinstance(expected, int):
+                return {"status": "bad_request", "message": "expected_revision 必须为整数"}, 400
+            issue = store.revise(issue_date, selected, attention,
+                                 expected_revision=expected, now=_local_now())
+            status_code, event_kind = 200, "revise"
+        audit_status = "ok"
+        try:
+            daily_editor.append_editor_event(Path(app.config["DAILY_EDITOR_LOG"]), {
+                "kind": event_kind, "issue_date": issue_date, "revision": issue["revision"],
+                "draft_topic_ids": [str(row.get("topic_id") or "") for group in ("topics", "candidates", "attention") for row in draft.get(group) or []],
+                "published_topic_ids": [row["topic_id"] for row in selected],
+            }, now=_local_now())
+        except Exception:
+            audit_status = "failed"
+            app.logger.exception("daily issue committed but editor audit append failed")
+        return {"status": "ok", "issue": issue,
+                "redirect_url": _stable_issue_url(issue_date),
+                "audit_status": audit_status}, status_code
+    except DailyIssueCorrupt:
+        return {"status": "storage_corrupt", "code": "storage_corrupt"}, 503
+    except DailyIssueConflict:
+        code = "already_published" if action == "publish" else "revision_conflict"
+        return {"status": "conflict", "code": code}, 409
+    except (DailyIssueValidationError, ValueError) as exc:
+        return {"status": "bad_request", "message": str(exc)}, 400
+    except Exception:
+        app.logger.exception("daily editor persistence failed")
+        return {"status": "error"}, 500
+
+
+@app.post("/admin/daily/<issue_date>/preview")
+@admin_auth.admin_required
+def admin_daily_preview(issue_date):
+    return _editor_request(issue_date, "preview")
+
+
+@app.post("/admin/daily/<issue_date>/publish")
+@admin_auth.admin_required
+def admin_daily_publish(issue_date):
+    return _editor_request(issue_date, "publish")
+
+
+@app.post("/admin/daily/<issue_date>/revise")
+@admin_auth.admin_required
+def admin_daily_revise(issue_date):
+    return _editor_request(issue_date, "revise")
+
+
 @app.route("/")
 def index():
     records = load_archive_records()
@@ -273,29 +528,37 @@ def index():
         if v:
             _vc[v] = _vc.get(v, 0) + 1
     verdicts = [{"name": v, "count": _vc[v]} for v in _verdict_order if v in _vc]
-    # 今日判断（页面只读缓存，永不阻塞；缓存由 `run.sh signals` 后台生成）
-    signals = []
-    breaking = None
-    attention = []
-    signal_meta = {}
-    signal_ran = False  # 区分「已生成但降噪后为 0」与「从未生成」
-    try:
-        import today_signal
-        cached = today_signal.read_signal_cache()
-        signal_ran = cached is not None
-        signal_meta = today_signal.enrich_cached_link_quotes(
-            cached if cached is not None else today_signal.missing_signal_state(),
-            records,
-        )
-        signals = signal_meta.get("signals") or []
-        breaking = signal_meta.get("breaking")
-        attention = signal_meta.get("attention") or []
-    except Exception as e:
-        print(f"[WARN] 今日判断读取失败（不影响页面）: {e}")
+    store = _issue_store()
+    issue = store.latest()
+    unrecoverable = store.unrecoverable_dates()
+    daily_error = ""
+    if unrecoverable and (not issue or max(unrecoverable) >= issue["issue_date"]):
+        issue = None
+        daily_error = "最新一期暂时无法读取，请稍后再试。"
     return render_template("index.html", records=records, topics=used_topics,
                            topic_counts=topic_counts, verdicts=verdicts,
-                           breaking=breaking, signals=signals, attention=attention,
-                           signal_meta=signal_meta, signal_ran=signal_ran)
+                           **_issue_view(issue, is_home=True, daily_error=daily_error))
+
+
+@app.get("/daily")
+def daily_archive():
+    return render_template("daily_archive.html", issues=_issue_store().list_issues())
+
+
+@app.get("/daily/<issue_date>")
+def daily_issue(issue_date):
+    try:
+        validate_issue_date(issue_date)
+    except (ValueError, DailyIssueValidationError):
+        abort(404)
+    try:
+        issue = _issue_store().get(issue_date)
+    except DailyIssueCorrupt:
+        app.logger.exception("daily issue snapshot is corrupt")
+        return render_template("daily_unavailable.html", issue_date=issue_date), 503
+    if not issue:
+        abort(404)
+    return render_template("daily.html", **_issue_view(issue, is_home=False))
 
 
 # 本地 archive 索引缓存：
@@ -458,7 +721,8 @@ def detail(record_id):
     return render_template("detail.html", article=article, related=related)
 
 
-@app.route("/ingest", methods=["GET", "POST"])
+@app.post("/ingest")
+@admin_auth.admin_required
 def ingest():
     """加入深度库：创建本地 job，后台抓取 YouTube → 改写 → 重建索引。"""
     import ingest_jobs
@@ -472,6 +736,7 @@ def ingest():
 
 
 @app.route("/ingest/status")
+@admin_auth.admin_required
 def ingest_status():
     import ingest_jobs
     job_id = request.args.get("job_id", "")
@@ -482,6 +747,7 @@ def ingest_status():
 
 
 @app.route("/signal/attention", methods=["POST"])
+@admin_auth.admin_required
 def signal_attention():
     """处理“热议浮现”提示：用户可手动加入首页，或先不加。"""
     body = request.get_json(silent=True) or {}

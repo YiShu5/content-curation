@@ -4,8 +4,11 @@ Run: blog/.venv/bin/python blog/test_app_routes.py
 """
 
 import sys
+from datetime import datetime
 from tempfile import TemporaryDirectory
 from pathlib import Path
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -22,22 +25,27 @@ def test_homepage_renders():
     print("✓ homepage renders")
 
 
-def test_homepage_shows_missing_signal_state_when_cache_absent():
-    original_cache = today_signal.SIGNAL_CACHE
+def test_homepage_without_published_issue_keeps_deep_library():
+    original_dir = app.config["DAILY_ISSUES_DIR"]
     try:
         with TemporaryDirectory() as tmp:
-            today_signal.SIGNAL_CACHE = Path(tmp) / "missing-today-signal.json"
-            client = app.test_client()
-            resp = client.get("/")
-            html = resp.get_data(as_text=True)
+            app.config["DAILY_ISSUES_DIR"] = str(Path(tmp) / "daily-issues")
+            with patch.object(app_module, "load_archive_records", return_value=[]), patch.object(
+                app_module,
+                "_local_now",
+                return_value=datetime(2026, 7, 11, 9, tzinfo=ZoneInfo("America/Los_Angeles")),
+            ):
+                client = app.test_client()
+                resp = client.get("/")
+                html = resp.get_data(as_text=True)
     finally:
-        today_signal.SIGNAL_CACHE = original_cache
+        app.config["DAILY_ISSUES_DIR"] = original_dir
 
     assert resp.status_code == 200
-    assert "今日 AI 判断" in html
-    assert "未生成" in html
-    assert "还没有生成今日判断" in html
-    print("✓ missing signal cache renders homepage state")
+    assert "还没有发布第一期" in html
+    assert 'id="deep-library"' in html
+    assert "今日 AI 判断" not in html
+    print("✓ no published issue keeps deep library")
 
 
 def test_detail_related_prefers_cover_url():
@@ -89,8 +97,13 @@ def test_missing_attention_promote_does_not_write_positive_log():
             app_module.__file__ = str(tmp_path / "app.py")
 
             client = app.test_client()
+            app.config.update(SECRET_KEY="test-secret", BLOG_ADMIN_PASSWORD="test-password")
+            with client.session_transaction() as session:
+                session["daily_admin"] = True
+                session["admin_csrf"] = "test-csrf"
             resp = client.post(
                 "/signal/attention",
+                headers={"X-CSRF-Token": "test-csrf"},
                 json={
                     "action": "promote",
                     "item_id": "missing",
@@ -113,7 +126,7 @@ def test_missing_attention_promote_does_not_write_positive_log():
 
 if __name__ == "__main__":
     test_homepage_renders()
-    test_homepage_shows_missing_signal_state_when_cache_absent()
+    test_homepage_without_published_issue_keeps_deep_library()
     test_detail_related_prefers_cover_url()
     test_missing_attention_promote_does_not_write_positive_log()
     print("\n全部通过 ✅")

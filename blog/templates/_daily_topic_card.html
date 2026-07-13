@@ -1,0 +1,30 @@
+<article class="daily-topic daily-topic-rank-{{ topic.rank }}" aria-labelledby="topic-{{ topic.topic_id }}">
+  <div class="daily-topic-meta">
+    <span class="daily-rank">{{ topic.rank }}</span>
+    {% if topic.independent_source_count >= 2 %}
+      <span class="daily-source-count">{{ topic.independent_source_count }} 个相关来源已合并</span>
+    {% elif topic.sources %}
+      <span class="daily-source-count">{{ topic.sources[0].publisher }}</span>
+    {% endif %}
+    {% if topic.category %}<span>{{ topic.category }}</span>{% endif %}
+  </div>
+  <h2 id="topic-{{ topic.topic_id }}">{{ topic.title }}</h2>
+  <p class="daily-what">{{ topic.what_happened }}</p>
+  {% if topic.rank == 1 and topic.discussion_focus %}
+  <div class="daily-focus" aria-label="大家主要在讨论">
+    <strong>大家主要在讨论</strong>
+    <ul>{% for focus in topic.discussion_focus[:3] %}<li>{{ focus }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+  <p class="daily-why"><span>为什么上榜</span>{{ topic.why_ranked }}</p>
+  {% if topic.sources %}
+  <details class="daily-evidence">
+    <summary>查看依据</summary>
+    <ul>
+      {% for source in topic.sources %}
+      <li>{% if source.verification_status == 'unavailable' %}<span>{{ source.publisher }} · {{ source.title }}（来源暂不可访问）</span>{% else %}<a href="{{ source.canonical_url }}" target="_blank" rel="noopener">{{ source.publisher }} · {{ source.title }}</a>{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+</article>

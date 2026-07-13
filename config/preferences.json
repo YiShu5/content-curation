@@ -6,6 +6,14 @@
     "market": "全球市场",
     "trend_horizon": "未来 1–3 个月"
   },
+  "daily_brief": {
+    "max_topics": 3,
+    "max_candidates": 12,
+    "min_sources_for_merged_label": 2,
+    "lead_title_target_chars": 34,
+    "side_title_target_chars": 24,
+    "discussion_focus_max": 3
+  },
   "daily_slots": [
     {
       "key": "consumer_growth",

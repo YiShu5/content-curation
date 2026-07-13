@@ -1,0 +1,33 @@
+<button id="dailyAdminButton" class="daily-admin-open" type="button"
+        data-action="{{ admin_action }}" data-date="{{ admin_target_date }}"
+        data-preview-surface="{{ 'home' if is_home else 'dated' }}"
+        {% if not draft_available %}disabled aria-disabled="true" aria-describedby="dailyAdminUnavailable"{% endif %}>
+  <span aria-hidden="true">●</span>
+  {{ '修订本期' if admin_action == 'revise' else '发布今日' }}
+</button>
+{% if not draft_available %}
+<span id="dailyAdminUnavailable" class="daily-admin-unavailable" role="status">{{ draft_message }}</span>
+{% endif %}
+<script id="adminCsrfToken" type="application/json">{{ {'token': csrf_token}|tojson }}</script>
+<script id="adminEditorConfig" type="application/json">{{ editor_limits|tojson }}</script>
+<dialog id="dailyAdminDialog" class="daily-admin-dialog" aria-labelledby="dailyAdminTitle">
+  <div class="daily-admin-shell">
+    <header>
+      <div><span>NOISEFILTER EDITOR</span><h2 id="dailyAdminTitle">{{ '修订本期' if admin_action == 'revise' else '发布今日简报' }}</h2></div>
+      <button id="dailyAdminClose" type="button" aria-label="关闭">×</button>
+    </header>
+    {% if current_revision %}<p class="daily-admin-revision">当前修订 {{ current_revision }}</p>{% endif %}
+    <p id="dailyAdminMeta" class="daily-admin-meta"></p>
+    <p id="dailyAdminState" role="status">正在读取今日候选…</p>
+    <div id="dailyAdminRows" class="daily-admin-rows"></div>
+    <label class="daily-admin-add">替换 / 补充候选
+      <select id="dailyCandidateSelect"><option value="">选择候选</option></select>
+      <button id="dailyCandidateAdd" type="button">加入</button>
+    </label>
+    <section id="dailyAdminPreview" class="daily-admin-preview" hidden></section>
+    <footer>
+      <button id="dailyPreviewButton" type="button">预览读者页面</button>
+      <button id="dailyPublishButton" type="button">{{ '保存修订' if admin_action == 'revise' else '确认发布' }}</button>
+    </footer>
+  </div>
+</dialog>

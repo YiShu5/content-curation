@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#f7f3ed"/>
+  <circle cx="1045" cy="90" r="270" fill="#e9f5fc" opacity=".72"/>
+  <circle cx="1120" cy="560" r="230" fill="#f0ddd0" opacity=".82"/>
+  <g transform="translate(88 78) scale(2.25)">
+    <circle cx="18" cy="18" r="16" fill="#E9F5FC"/>
+    <path d="M7 11h8M7 16h12M7 21h9M7 26h6" stroke="#2E9FE6" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M20 10l6 8-6 8" fill="none" stroke="#17191C" stroke-width="2.2" stroke-linejoin="round"/>
+    <circle cx="28" cy="18" r="3" fill="#E85C55"/>
+  </g>
+  <text x="190" y="116" fill="#181a1d" font-family="Arial, sans-serif" font-size="31" font-weight="800" letter-spacing="5">降噪</text>
+  <text x="190" y="148" fill="#71747a" font-family="Arial, sans-serif" font-size="14" font-weight="700" letter-spacing="4">NOISE FILTER</text>
+  <path d="M88 210H1112" stroke="#d9d3ca"/>
+  <text x="88" y="342" fill="#181a1d" font-family="'Noto Serif SC','Songti SC',serif" font-size="78" font-weight="900">降噪每日简报</text>
+  <text x="92" y="424" fill="#5e5d59" font-family="'Noto Serif SC','Songti SC',serif" font-size="36" font-weight="700">哪些讨论值得知道？</text>
+  <g transform="translate(88 500)">
+    <path d="M0 0h56M0 18h86M0 36h68" stroke="#2E9FE6" stroke-width="8" stroke-linecap="round"/>
+    <path d="M104 -8l30 26-30 26" fill="none" stroke="#181a1d" stroke-width="8" stroke-linejoin="round"/>
+    <circle cx="150" cy="18" r="13" fill="#E85C55"/>
+  </g>
+  <text x="280" y="540" fill="#77736d" font-family="Arial, sans-serif" font-size="20" font-weight="700" letter-spacing="2">合并重复 · 留下变化 · 不凑数</text>
+</svg>

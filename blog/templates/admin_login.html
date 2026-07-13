@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}管理员登录 · 降噪{% endblock %}
+{% block content %}
+<section class="admin-login" aria-labelledby="adminLoginTitle">
+  <h1 id="adminLoginTitle">管理员登录</h1>
+  {% if error %}<p class="admin-login-error" role="alert">{{ error }}</p>{% endif %}
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>密码 <input type="password" name="password" required autocomplete="current-password"></label>
+    <button type="submit">登录</button>
+  </form>
+</section>
+{% endblock %}

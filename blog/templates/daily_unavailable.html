@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}降噪｜{{ issue_date }} 暂时无法读取{% endblock %}
+{% block body_class %}daily-page{% endblock %}
+{% block content %}
+<section class="daily-empty daily-error" role="status">
+  <p>{{ issue_date }}</p>
+  <h1>这期简报暂时无法读取</h1>
+  <p>这期简报暂时无法读取，请稍后再试。</p>
+  <a href="{{ url_for('index') }}">返回最新一期</a>
+</section>
+{% endblock %}

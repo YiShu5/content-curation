@@ -6,26 +6,33 @@
     <title>{% block title %}降噪{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/daily.css') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700;900&display=swap" rel="stylesheet">
+    {% block extra_styles %}{% endblock %}
     {% block extra_head %}{% endblock %}
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
     <header class="site-header">
         <div class="header-inner">
             <div class="header-brand">
-                <a href="/" class="logo">
-                    <span class="logo-icon">降</span>
+                <a href="{{ url_for('index') }}" class="logo" aria-label="降噪首页">
+                    <svg class="logo-mark" viewBox="0 0 36 36" aria-hidden="true">
+                        <circle cx="18" cy="18" r="16" fill="#E9F5FC"/>
+                        <path d="M7 11h8M7 16h12M7 21h9M7 26h6" stroke="#2E9FE6" stroke-width="2.2" stroke-linecap="round"/>
+                        <path d="M20 10l6 8-6 8" fill="none" stroke="#17191C" stroke-width="2.2" stroke-linejoin="round"/>
+                        <circle cx="28" cy="18" r="3" fill="#E85C55"/>
+                    </svg>
                     <span class="logo-text">降噪</span>
+                    <span class="logo-en">NOISE<br>FILTER</span>
                 </a>
-                <span class="header-tagline">5 分钟判断：值不值得继续看</span>
             </div>
-            <form class="header-search" action="/search" method="get" role="search"
-                  onsubmit="this.classList.add('is-loading'); var b=this.querySelector('button'); if(b){b.dataset.t=b.textContent; b.textContent='搜索中…';}">
-                <input type="search" name="q" placeholder="语义搜索 · 按意思找内容"
-                       value="{{ query|default('') }}" autocomplete="off" required>
-                <button type="submit" aria-label="搜索">搜索</button>
-            </form>
+            <nav class="site-nav" aria-label="主导航">
+                <a href="{{ url_for('daily_archive') }}">往期简报</a>
+                <a href="{{ url_for('index') }}#deep-library">深度内容库</a>
+                <a href="{{ url_for('search') }}">搜索</a>
+            </nav>
+            {% block header_actions %}{% endblock %}
         </div>
     </header>
 
@@ -74,5 +81,6 @@
         });
     })();
     </script>
+    {% block scripts %}{% endblock %}
 </body>
 </html>

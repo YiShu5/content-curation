@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}降噪｜{{ issue.issue_date }} 值得知道的讨论{% endblock %}
+{% block body_class %}daily-page{% endblock %}
+{% block header_actions %}{% if is_admin %}{% include "_admin_daily_dialog.html" %}{% endif %}{% endblock %}
+{% block extra_styles %}{% if is_admin %}<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-daily.css') }}">{% endif %}{% endblock %}
+{% block extra_head %}
+{% if issue %}
+<link rel="canonical" href="{{ canonical_url }}">
+<meta name="description" content="{{ issue.topics[0].why_ranked }}">
+<meta property="og:type" content="article">
+<meta property="og:title" content="降噪｜{{ issue.issue_date }} 值得知道的讨论">
+<meta property="og:description" content="{{ issue.topics[0].why_ranked }}">
+<meta property="og:url" content="{{ canonical_url }}">
+<meta property="og:image" content="{{ og_image_url }}">
+{% endif %}
+{% endblock %}
+{% block content %}
+{% include "_daily_brief.html" %}
+{% if issue %}
+<div class="daily-share"><button id="dailyCopyButton" type="button" aria-live="polite">复制本期 ↗</button></div>
+<script id="dailySharePayload" type="application/json">{{ {'text': share_text}|tojson }}</script>
+{% endif %}
+{% endblock %}
+{% block scripts %}{% if issue %}<script src="{{ url_for('static', filename='js/daily.js') }}"></script>{% endif %}{% if is_admin %}<script type="module" src="{{ url_for('static', filename='js/admin-daily.mjs') }}"></script>{% endif %}{% endblock %}

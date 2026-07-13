@@ -1,17 +1,41 @@
 {% extends "base.html" %}
 
-{% block title %}降噪 · 精选内容策展{% endblock %}
+{% block title %}{% if issue %}降噪｜{{ issue.issue_date }} 值得知道的讨论{% else %}降噪{% endif %}{% endblock %}
+{% block body_class %}daily-page{% endblock %}
+{% block header_actions %}{% if is_admin %}{% include "_admin_daily_dialog.html" %}{% endif %}{% endblock %}
+{% block extra_styles %}{% if is_admin %}<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-daily.css') }}">{% endif %}{% endblock %}
+{% block extra_head %}
+{% if issue %}
+<link rel="canonical" href="{{ canonical_url }}">
+<meta name="description" content="{{ issue.topics[0].why_ranked }}">
+<meta property="og:type" content="article">
+<meta property="og:title" content="降噪｜{{ issue.issue_date }} 值得知道的讨论">
+<meta property="og:description" content="{{ issue.topics[0].why_ranked }}">
+<meta property="og:url" content="{{ canonical_url }}">
+<meta property="og:image" content="{{ og_image_url }}">
+{% endif %}
+{% endblock %}
+{% block scripts %}{% if is_admin %}<script type="module" src="{{ url_for('static', filename='js/admin-daily.mjs') }}"></script>{% endif %}{% endblock %}
 
 {% block hero %}{% endblock %}
 
 {% block content %}
 {% set vcolors = {'必读':'#EF4444','强烈推荐':'#F59E0B','推荐':'#10B981','一般':'#9CA3AF','可跳过':'#CBD5E1'} %}
 
+{% include "_daily_brief.html" %}
+{% if issue %}
+<div class="daily-share"><button id="dailyCopyButton" type="button" aria-live="polite">复制本期 ↗</button></div>
+<script id="dailySharePayload" type="application/json">{{ {'text': share_text}|tojson }}</script>
+<script src="{{ url_for('static', filename='js/daily.js') }}" defer></script>
+{% endif %}
+
 <div class="home-layout">
     <div class="home-main">
-        {% if breaking or signals or attention or signal_ran or signal_meta.freshness %}
-        {% include "_signals.html" %}
-        {% endif %}
+        <section id="deep-library" aria-labelledby="deepLibraryTitle">
+        <header class="deep-library-heading">
+            <p>继续深挖</p>
+            <h2 id="deepLibraryTitle">深度内容库</h2>
+        </header>
 
         <div class="filter-scrim" id="filterScrim" hidden></div>
         <button class="filter-fab" id="filterFab" type="button" aria-controls="filterShell" aria-expanded="false">筛选</button>
@@ -74,6 +98,7 @@
             <div class="empty-state filter-empty" id="filterEmpty" hidden>
                 <p>这个筛选下暂时没有内容。可以清除筛选，或者换一个话题。</p>
             </div>
+        </section>
         </section>
     </div>
 </div>
