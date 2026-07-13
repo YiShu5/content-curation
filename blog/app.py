@@ -358,6 +358,7 @@ def _issue_view(issue, *, is_home, daily_error=""):
         "admin_action": admin_action,
         "admin_target_date": admin_target_date,
         "current_issue_date": today,
+        "current_revision": issue.get("revision") if issue and admin_action == "revise" else None,
         "csrf_token": admin_auth.csrf_token() if admin else "",
         "draft_available": draft_available,
         "draft_message": draft_message,

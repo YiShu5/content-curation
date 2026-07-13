@@ -46,6 +46,64 @@ def admin_client(tmp):
     return client
 
 
+def public_client(tmp, *, authenticated):
+    app.config.update(TESTING=True, SECRET_KEY="test-secret", BLOG_ADMIN_PASSWORD="correct horse",
+                      BLOG_TIMEZONE="America/Los_Angeles", DAILY_ISSUES_DIR=str(Path(tmp) / "issues"),
+                      DAILY_EDITOR_LOG=str(Path(tmp) / "events.jsonl"))
+    client = app.test_client()
+    if authenticated:
+        with client.session_transaction() as session:
+            session["daily_admin"] = True
+            session["admin_csrf"] = "known-token"
+    return client
+
+
+def test_public_home_has_no_admin_dialog_or_csrf():
+    with TemporaryDirectory() as tmp:
+        client = public_client(tmp, authenticated=False)
+        with patch("app._local_now", return_value=datetime.fromisoformat("2026-07-11T09:30:00-07:00")), \
+             patch("app.load_archive_records", return_value=[]), \
+             patch("today_signal.read_signal_cache", return_value={}):
+            html = client.get("/").get_data(as_text=True)
+    for secret in ("dailyAdminButton", "dailyAdminDialog", "adminCsrfToken",
+                   "adminEditorConfig", "/admin/daily/draft", "今日候选不可用"):
+        assert secret not in html
+
+
+def test_authenticated_home_has_publish_dialog_without_password():
+    with TemporaryDirectory() as tmp:
+        client = public_client(tmp, authenticated=True)
+        now = datetime.fromisoformat("2026-07-11T09:30:00-07:00")
+        with patch("app._local_now", return_value=now), patch("app.load_archive_records", return_value=[]), \
+             patch("today_signal.read_signal_cache", return_value=cache()):
+            html = client.get("/").get_data(as_text=True)
+    assert "dailyAdminButton" in html
+    assert "dailyAdminDialog" in html
+    assert "发布今日" in html
+    assert "correct horse" not in html
+    assert "known-token" in html
+
+
+def test_admin_dialog_action_revision_and_unavailable_states():
+    with TemporaryDirectory() as tmp:
+        client = public_client(tmp, authenticated=True)
+        headers = {"X-CSRF-Token": "known-token"}
+        then = datetime.fromisoformat("2026-07-10T09:30:00-07:00")
+        with patch("app._local_now", return_value=then), patch("today_signal.read_signal_cache", return_value=cache("2026-07-10")):
+            assert client.post("/admin/daily/2026-07-10/publish", headers=headers,
+                               json={"topics": [{"topic_id": "topic-a"}]}).status_code == 201
+        today = datetime.fromisoformat("2026-07-11T09:30:00-07:00")
+        with patch("app._local_now", return_value=today), patch("app.load_archive_records", return_value=[]), \
+             patch("today_signal.read_signal_cache", return_value={}):
+            dated = client.get("/daily/2026-07-10").get_data(as_text=True)
+            home = client.get("/").get_data(as_text=True)
+        assert "修订本期" in dated and 'data-date="2026-07-10"' in dated
+        assert "当前修订 1" in dated
+        assert "发布今日" in home and "修订本期" not in home
+        assert "disabled" in home and 'aria-disabled="true"' in home
+        assert "今日候选不可用" in home
+
+
 def test_anonymous_admin_routes_are_rejected():
     client = configured_client()
     with patch("ingest_jobs.start_job") as start_job, patch("ingest_jobs.get_job") as get_job, patch("today_signal.read_signal_cache") as read_cache:
@@ -109,7 +167,8 @@ def test_admin_mutations_proceed_with_known_csrf_and_admin_html_is_not_cached():
         assert response.status_code == 200
         dismiss.assert_called_once()
     page = client.get("/")
-    assert b"known-token" not in page.data
+    assert b"known-token" in page.data
+    assert b"correct horse" not in page.data
     assert page.headers["Cache-Control"] == "no-store"
 
 
@@ -259,6 +318,9 @@ def test_corrupt_current_with_public_fallback_disables_admin_writes():
 
 
 if __name__ == "__main__":
+    test_public_home_has_no_admin_dialog_or_csrf()
+    test_authenticated_home_has_publish_dialog_without_password()
+    test_admin_dialog_action_revision_and_unavailable_states()
     test_anonymous_admin_routes_are_rejected()
     test_login_uses_csrf_and_creates_admin_session()
     test_admin_posts_require_csrf_but_track_stays_public()
