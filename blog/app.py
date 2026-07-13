@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 import requests
-from flask import Flask, render_template, abort, Response, request, send_file
+from flask import Flask, render_template, abort, Response, request, send_file, redirect, url_for
 
 import re as _re
 from urllib.parse import quote as _urlquote
@@ -53,11 +53,38 @@ if _env_path.exists():
 
 from config import Config
 from product_schema import TOPICS
+import admin_auth
 
 app = Flask(__name__)
 app.config.from_object(Config)
+if app.config["BLOG_ADMIN_PASSWORD"] and app.config["SECRET_KEY"] == "content-curation-blog-2026":
+    raise RuntimeError("set a private SECRET_KEY before enabling admin login")
 app.jinja_env.filters['markdown'] = _render_markdown
 app.jinja_env.filters['strip_md'] = _strip_markdown
+
+
+@app.after_request
+def prevent_admin_cache(response):
+    if request.path.startswith(("/admin/", "/ingest", "/signal/attention")):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    if request.method == "POST":
+        admin_auth.validate_csrf()
+        if not admin_auth.login_admin(request.form.get("password", "")):
+            return render_template("admin_login.html", error="密码不正确", csrf_token=admin_auth.csrf_token()), 401
+        return redirect(url_for("index"))
+    return render_template("admin_login.html", error="", csrf_token=admin_auth.csrf_token())
+
+
+@app.post("/admin/logout")
+@admin_auth.admin_required
+def admin_logout():
+    admin_auth.logout_admin()
+    return redirect(url_for("index"))
 
 # ── 飞书 API（legacy，博客已改读本地 archive，不再调用）──────────────────────
 _token_cache = {"token": "", "expiry": 0}
@@ -458,7 +485,8 @@ def detail(record_id):
     return render_template("detail.html", article=article, related=related)
 
 
-@app.route("/ingest", methods=["GET", "POST"])
+@app.post("/ingest")
+@admin_auth.admin_required
 def ingest():
     """加入深度库：创建本地 job，后台抓取 YouTube → 改写 → 重建索引。"""
     import ingest_jobs
@@ -472,6 +500,7 @@ def ingest():
 
 
 @app.route("/ingest/status")
+@admin_auth.admin_required
 def ingest_status():
     import ingest_jobs
     job_id = request.args.get("job_id", "")
@@ -482,6 +511,7 @@ def ingest_status():
 
 
 @app.route("/signal/attention", methods=["POST"])
+@admin_auth.admin_required
 def signal_attention():
     """处理“热议浮现”提示：用户可手动加入首页，或先不加。"""
     body = request.get_json(silent=True) or {}

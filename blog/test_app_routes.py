@@ -89,8 +89,13 @@ def test_missing_attention_promote_does_not_write_positive_log():
             app_module.__file__ = str(tmp_path / "app.py")
 
             client = app.test_client()
+            app.config.update(SECRET_KEY="test-secret", BLOG_ADMIN_PASSWORD="test-password")
+            with client.session_transaction() as session:
+                session["daily_admin"] = True
+                session["admin_csrf"] = "test-csrf"
             resp = client.post(
                 "/signal/attention",
+                headers={"X-CSRF-Token": "test-csrf"},
                 json={
                     "action": "promote",
                     "item_id": "missing",
