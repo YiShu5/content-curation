@@ -57,12 +57,15 @@ from config import Config
 from product_schema import TOPICS
 import admin_auth
 from daily_issues import (
+    DAILY_TEXT_LIMITS,
     DailyIssueCorrupt,
+    DailyIssueConflict,
     DailyIssueStore,
     DailyIssueValidationError,
     format_share_text,
     validate_issue_date,
 )
+import daily_editor
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -328,6 +331,21 @@ def _issue_view(issue, *, is_home, daily_error=""):
     admin_action = "publish" if is_home and issue_date != today else ("revise" if issue else "publish")
     admin_target_date = issue_date if admin_action == "revise" else today
     public_base = str(app.config.get("PUBLIC_BASE_URL") or request.url_root).rstrip("/")
+    draft_available = True
+    draft_message = ""
+    if admin:
+        try:
+            if admin_action == "revise":
+                _issue_store().assert_revisable(admin_target_date)
+            else:
+                _issue_store().next_issue_number()
+                import today_signal
+                daily_editor.trusted_draft(
+                    today_signal.read_signal_cache() or {}, expected_date=today
+                )
+        except (DailyIssueCorrupt, DailyIssueConflict, ValueError) as exc:
+            draft_available = False
+            draft_message = str(exc)
     return {
         "issue": issue,
         "daily_error": daily_error,
@@ -340,7 +358,144 @@ def _issue_view(issue, *, is_home, daily_error=""):
         "admin_action": admin_action,
         "admin_target_date": admin_target_date,
         "current_issue_date": today,
+        "csrf_token": admin_auth.csrf_token() if admin else "",
+        "draft_available": draft_available,
+        "draft_message": draft_message,
+        "editor_limits": DAILY_TEXT_LIMITS if admin else {},
     }
+
+
+def _trusted_editor_draft(issue_date, *, today, store):
+    import today_signal
+    published = store.get(issue_date)
+    if published:
+        published = store.assert_revisable(issue_date)
+        current = None
+        if issue_date == today:
+            try:
+                current = daily_editor.trusted_draft(
+                    today_signal.read_signal_cache() or {}, expected_date=today
+                )
+            except ValueError:
+                pass
+        return daily_editor.revision_draft(published, current), published
+    if issue_date != today:
+        return None, None
+    return daily_editor.trusted_draft(
+        today_signal.read_signal_cache() or {}, expected_date=today
+    ), None
+
+
+def _selected_attention(draft, selected_topics):
+    selected_ids = {str(row.get("topic_id") or "") for row in selected_topics}
+    result, seen = [], set()
+    for row in draft.get("attention") or []:
+        topic_id = str(row.get("topic_id") or "")
+        if not topic_id or topic_id in selected_ids or topic_id in seen or len(result) >= 3:
+            continue
+        item = dict(row)
+        item["attention_status"] = item.get("attention_status") or "watch"
+        result.append(item)
+        seen.add(topic_id)
+    return result
+
+
+@app.get("/admin/daily/draft")
+@admin_auth.admin_required
+def admin_daily_draft():
+    today = _local_now().date().isoformat()
+    issue_date = request.args.get("date") or today
+    try:
+        validate_issue_date(issue_date)
+        store = _issue_store()
+        draft, published = _trusted_editor_draft(issue_date, today=today, store=store)
+        if draft is None:
+            return {"status": "not_found"}, 404
+        issue_number = published["issue_number"] if published else store.next_issue_number()
+    except DailyIssueValidationError as exc:
+        return {"status": "bad_date", "message": str(exc)}, 400
+    except DailyIssueCorrupt as exc:
+        return {"status": "storage_corrupt", "code": "storage_corrupt", "message": str(exc)}, 503
+    except ValueError as exc:
+        return {"status": "unavailable", "message": str(exc)}, 409
+    return {"status": "ok", "draft": draft, "published": published,
+            "issue_meta": {"issue_date": issue_date, "issue_number": issue_number,
+                           "revision": published["revision"] if published else 0,
+                           "generated_at": draft.get("generated_at") or ""}}
+
+
+def _editor_request(issue_date, action):
+    today = _local_now().date().isoformat()
+    body = request.get_json(silent=True) or {}
+    try:
+        validate_issue_date(issue_date)
+        if action == "publish" and issue_date != today:
+            return {"status": "unavailable", "message": "首次发布仅限当日"}, 409
+        store = _issue_store()
+        try:
+            draft, published = _trusted_editor_draft(issue_date, today=today, store=store)
+        except ValueError as exc:
+            return {"status": "unavailable", "message": str(exc)}, 409
+        if action == "publish" and published:
+            return {"status": "conflict", "code": "already_published"}, 409
+        if action in {"preview", "revise"} and issue_date != today and not published:
+            return {"status": "not_found"}, 404
+        if draft is None:
+            return {"status": "unavailable"}, 409
+        selected = daily_editor.apply_selection(draft, body.get("topics"))
+        attention = _selected_attention(draft, selected)
+        if action == "preview":
+            surface = body.get("preview_surface")
+            if surface not in {"home", "dated"}:
+                return {"status": "bad_request", "message": "preview_surface 无效"}, 400
+            issue = store.preview(issue_date, selected, attention, now=_local_now())
+            rendered = render_template("_daily_brief.html", issue=issue, daily_error="",
+                                       is_home=surface == "home", is_current_day=issue_date == today)
+            return {"status": "ok", "html": rendered}
+        if action == "publish":
+            issue = store.publish(issue_date, selected, attention, now=_local_now())
+            status_code, event_kind = 201, "publish"
+        else:
+            expected = body.get("expected_revision")
+            if isinstance(expected, bool) or not isinstance(expected, int):
+                return {"status": "bad_request", "message": "expected_revision 必须为整数"}, 400
+            issue = store.revise(issue_date, selected, attention,
+                                 expected_revision=expected, now=_local_now())
+            status_code, event_kind = 200, "revise"
+        daily_editor.append_editor_event(Path(app.config["DAILY_EDITOR_LOG"]), {
+            "kind": event_kind, "issue_date": issue_date, "revision": issue["revision"],
+            "draft_topic_ids": [str(row.get("topic_id") or "") for group in ("topics", "candidates", "attention") for row in draft.get(group) or []],
+            "published_topic_ids": [row["topic_id"] for row in selected],
+        }, now=_local_now())
+        return {"status": "ok", "issue": issue, "redirect_url": _stable_issue_url(issue_date)}, status_code
+    except DailyIssueCorrupt:
+        return {"status": "storage_corrupt", "code": "storage_corrupt"}, 503
+    except DailyIssueConflict:
+        code = "already_published" if action == "publish" else "revision_conflict"
+        return {"status": "conflict", "code": code}, 409
+    except (DailyIssueValidationError, ValueError) as exc:
+        return {"status": "bad_request", "message": str(exc)}, 400
+    except Exception:
+        app.logger.exception("daily editor persistence failed")
+        return {"status": "error"}, 500
+
+
+@app.post("/admin/daily/<issue_date>/preview")
+@admin_auth.admin_required
+def admin_daily_preview(issue_date):
+    return _editor_request(issue_date, "preview")
+
+
+@app.post("/admin/daily/<issue_date>/publish")
+@admin_auth.admin_required
+def admin_daily_publish(issue_date):
+    return _editor_request(issue_date, "publish")
+
+
+@app.post("/admin/daily/<issue_date>/revise")
+@admin_auth.admin_required
+def admin_daily_revise(issue_date):
+    return _editor_request(issue_date, "revise")
 
 
 @app.route("/")
