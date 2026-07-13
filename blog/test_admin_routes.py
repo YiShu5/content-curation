@@ -70,6 +70,7 @@ def test_admin_mutations_proceed_with_known_csrf_and_page_exposes_it():
     page = client.get("/")
     assert b"X-CSRF-Token" in page.data
     assert b"known-token" in page.data
+    assert page.headers["Cache-Control"] == "no-store"
 
 
 if __name__ == "__main__":

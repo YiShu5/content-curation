@@ -73,7 +73,10 @@ def admin_template_context():
 
 @app.after_request
 def prevent_admin_cache(response):
-    if request.path.startswith(("/admin/", "/ingest", "/signal/attention")):
+    if (
+        request.path.startswith(("/admin/", "/ingest", "/signal/attention"))
+        or (admin_auth.is_admin() and response.mimetype == "text/html")
+    ):
         response.headers["Cache-Control"] = "no-store"
     return response
 
