@@ -171,6 +171,31 @@ def test_publish_validation_and_revision_conflict():
             assert conflict.status_code == 409 and conflict.get_json()["code"] == "revision_conflict"
 
 
+def test_editor_rejects_non_object_json_and_reports_audit_failure_after_commit():
+    with TemporaryDirectory() as tmp:
+        client = admin_client(tmp)
+        headers = {"X-CSRF-Token": "known-token"}
+        now = datetime.fromisoformat("2026-07-11T09:30:00-07:00")
+        with patch("app._local_now", return_value=now), patch("today_signal.read_signal_cache", return_value=cache()):
+            for payload in (["topic-a"], "topic-a", 7, True):
+                response = client.post(
+                    "/admin/daily/2026-07-11/publish",
+                    headers=headers,
+                    json=payload,
+                )
+                assert response.status_code == 400
+            with patch("daily_editor.append_editor_event", side_effect=OSError("disk full")):
+                response = client.post(
+                    "/admin/daily/2026-07-11/publish",
+                    headers=headers,
+                    json={"topics": [{"topic_id": "topic-a"}]},
+                )
+            assert response.status_code == 201
+            assert response.get_json()["status"] == "ok"
+            assert response.get_json()["audit_status"] == "failed"
+            assert (Path(tmp) / "issues" / "2026-07-11.json").exists()
+
+
 def test_missing_cache_blocks_first_publish_but_not_stored_revision():
     with TemporaryDirectory() as tmp:
         client = admin_client(tmp); headers = {"X-CSRF-Token": "known-token"}
@@ -240,6 +265,7 @@ if __name__ == "__main__":
     test_admin_mutations_proceed_with_known_csrf_and_admin_html_is_not_cached()
     test_draft_preview_publish_duplicate_and_audit()
     test_publish_validation_and_revision_conflict()
+    test_editor_rejects_non_object_json_and_reports_audit_failure_after_commit()
     test_missing_cache_blocks_first_publish_but_not_stored_revision()
     test_historical_revision_ignores_unrelated_today_cache()
     test_corrupt_current_with_public_fallback_disables_admin_writes()

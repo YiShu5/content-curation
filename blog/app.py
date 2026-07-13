@@ -426,7 +426,11 @@ def admin_daily_draft():
 
 def _editor_request(issue_date, action):
     today = _local_now().date().isoformat()
-    body = request.get_json(silent=True) or {}
+    body = request.get_json(silent=True)
+    if body is None:
+        body = {}
+    if not isinstance(body, dict):
+        return {"status": "bad_request", "message": "JSON 请求体必须为对象"}, 400
     try:
         validate_issue_date(issue_date)
         if action == "publish" and issue_date != today:
@@ -462,12 +466,19 @@ def _editor_request(issue_date, action):
             issue = store.revise(issue_date, selected, attention,
                                  expected_revision=expected, now=_local_now())
             status_code, event_kind = 200, "revise"
-        daily_editor.append_editor_event(Path(app.config["DAILY_EDITOR_LOG"]), {
-            "kind": event_kind, "issue_date": issue_date, "revision": issue["revision"],
-            "draft_topic_ids": [str(row.get("topic_id") or "") for group in ("topics", "candidates", "attention") for row in draft.get(group) or []],
-            "published_topic_ids": [row["topic_id"] for row in selected],
-        }, now=_local_now())
-        return {"status": "ok", "issue": issue, "redirect_url": _stable_issue_url(issue_date)}, status_code
+        audit_status = "ok"
+        try:
+            daily_editor.append_editor_event(Path(app.config["DAILY_EDITOR_LOG"]), {
+                "kind": event_kind, "issue_date": issue_date, "revision": issue["revision"],
+                "draft_topic_ids": [str(row.get("topic_id") or "") for group in ("topics", "candidates", "attention") for row in draft.get(group) or []],
+                "published_topic_ids": [row["topic_id"] for row in selected],
+            }, now=_local_now())
+        except Exception:
+            audit_status = "failed"
+            app.logger.exception("daily issue committed but editor audit append failed")
+        return {"status": "ok", "issue": issue,
+                "redirect_url": _stable_issue_url(issue_date),
+                "audit_status": audit_status}, status_code
     except DailyIssueCorrupt:
         return {"status": "storage_corrupt", "code": "storage_corrupt"}, 503
     except DailyIssueConflict:
