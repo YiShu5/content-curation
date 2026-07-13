@@ -46,7 +46,7 @@ def test_admin_posts_require_csrf_but_track_stays_public():
     assert configured_client().post("/track", json={"kind": "test"}).status_code == 204
 
 
-def test_admin_mutations_proceed_with_known_csrf_and_page_exposes_it():
+def test_admin_mutations_proceed_with_known_csrf_and_admin_html_is_not_cached():
     client = configured_client()
     with client.session_transaction() as session:
         session["daily_admin"] = True
@@ -68,8 +68,7 @@ def test_admin_mutations_proceed_with_known_csrf_and_page_exposes_it():
         assert response.status_code == 200
         dismiss.assert_called_once()
     page = client.get("/")
-    assert b"X-CSRF-Token" in page.data
-    assert b"known-token" in page.data
+    assert b"known-token" not in page.data
     assert page.headers["Cache-Control"] == "no-store"
 
 
@@ -77,5 +76,5 @@ if __name__ == "__main__":
     test_anonymous_admin_routes_are_rejected()
     test_login_uses_csrf_and_creates_admin_session()
     test_admin_posts_require_csrf_but_track_stays_public()
-    test_admin_mutations_proceed_with_known_csrf_and_page_exposes_it()
+    test_admin_mutations_proceed_with_known_csrf_and_admin_html_is_not_cached()
     print("全部通过 ✅")
