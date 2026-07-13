@@ -309,13 +309,16 @@ class DailyIssueStore:
                 previous = previous_by_id.get(row["topic_id"])
                 if previous is None:
                     return False
-                prior_ids = {
+                prior_trusted_ids = {
                     source.get("source_id")
                     for source in previous.get("sources", [])
-                    if isinstance(source, dict) and source.get("source_id")
+                    if isinstance(source, dict)
+                    and source.get("source_id")
+                    and source.get("verification_status")
+                    in {"readable", "unavailable"}
                 }
                 return any(
-                    source.get("source_id") in prior_ids
+                    source.get("source_id") in prior_trusted_ids
                     and source.get("verification_status") == "unavailable"
                     for source in sources
                 )
@@ -573,10 +576,6 @@ class DailyIssueStore:
             current = self.assert_revisable(issue_date)
             if current["revision"] != expected_revision:
                 raise DailyIssueConflict("期刊已被其他编辑修订")
-            _atomic_write_json(
-                self._revision_path(issue_date, current["revision"]),
-                current,
-            )
             revised = self._payload(
                 issue_date,
                 topics,
@@ -586,6 +585,10 @@ class DailyIssueStore:
                 published_at=current["published_at"],
                 revised_at=now.isoformat(),
                 previous_topics=current["topics"],
+            )
+            _atomic_write_json(
+                self._revision_path(issue_date, current["revision"]),
+                current,
             )
             _atomic_write_json(self._issue_path(issue_date), revised)
             return revised

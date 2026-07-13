@@ -199,6 +199,83 @@ def test_revision_may_retain_prior_evidence_as_unavailable():
         assert revised["topics"][0]["sources"][0]["verification_status"] == "unavailable"
 
 
+def test_revision_cannot_launder_previously_unchecked_evidence_as_unavailable():
+    with TemporaryDirectory() as tmp:
+        store = DailyIssueStore(Path(tmp), "America/Los_Angeles")
+        store.publish(
+            "2026-07-11",
+            [topic()],
+            [],
+            now=datetime.fromisoformat("2026-07-11T09:00:00-07:00"),
+        )
+
+        second = topic()
+        second["sources"][0]["verification_status"] = "unavailable"
+        unchecked = dict(second["sources"][0])
+        unchecked.update({
+            "source_id": "unchecked-source",
+            "title": "尚未核验的讨论",
+            "url": "https://community.example/discussion",
+            "canonical_url": "https://community.example/discussion",
+            "publisher": "Community",
+            "publisher_key": "community",
+            "is_primary": False,
+            "verification_status": "unchecked",
+        })
+        second["sources"].append(unchecked)
+        store.revise(
+            "2026-07-11",
+            [second],
+            [],
+            expected_revision=1,
+            now=datetime.fromisoformat("2026-07-11T09:30:00-07:00"),
+        )
+
+        third = topic()
+        third["sources"] = [unchecked | {"verification_status": "unavailable"}]
+        try:
+            store.revise(
+                "2026-07-11",
+                [third],
+                [],
+                expected_revision=2,
+                now=datetime.fromisoformat("2026-07-11T10:00:00-07:00"),
+            )
+        except DailyIssueValidationError:
+            pass
+        else:
+            raise AssertionError("previously unchecked evidence must not become trusted")
+        assert store.get("2026-07-11")["revision"] == 2
+
+
+def test_invalid_revision_does_not_create_revision_history():
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        store = DailyIssueStore(root, "America/Los_Angeles")
+        store.publish(
+            "2026-07-11",
+            [topic()],
+            [],
+            now=datetime.fromisoformat("2026-07-11T09:00:00-07:00"),
+        )
+        invalid = topic()
+        invalid["sources"][0]["verification_status"] = "unchecked"
+        try:
+            store.revise(
+                "2026-07-11",
+                [invalid],
+                [],
+                expected_revision=1,
+                now=datetime.fromisoformat("2026-07-11T09:30:00-07:00"),
+            )
+        except DailyIssueValidationError:
+            pass
+        else:
+            raise AssertionError("expected invalid revision")
+        assert store.get("2026-07-11")["revision"] == 1
+        assert not (root / "revisions" / "2026-07-11-r01.json").exists()
+
+
 def test_persistence_allowlists_fields_and_preserves_attention_status_without_mutation():
     with TemporaryDirectory() as tmp:
         store = DailyIssueStore(Path(tmp), "America/Los_Angeles")
@@ -839,6 +916,8 @@ if __name__ == "__main__":
     test_publish_requires_contiguous_topic_ranks()
     test_first_publish_requires_readable_evidence_for_every_topic()
     test_revision_may_retain_prior_evidence_as_unavailable()
+    test_revision_cannot_launder_previously_unchecked_evidence_as_unavailable()
+    test_invalid_revision_does_not_create_revision_history()
     test_persistence_allowlists_fields_and_preserves_attention_status_without_mutation()
     test_attention_accepts_zero_to_three_topics_only()
     test_attention_status_must_be_supported()
