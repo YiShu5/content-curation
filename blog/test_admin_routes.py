@@ -1,5 +1,7 @@
 """Administrator route tests. Run: blog/.venv/bin/python blog/test_admin_routes.py"""
 
+from unittest.mock import patch
+
 from app import app
 
 
@@ -10,9 +12,13 @@ def configured_client():
 
 def test_anonymous_admin_routes_are_rejected():
     client = configured_client()
-    assert client.post("/ingest", json={"url": "https://youtube.com/watch?v=x"}).status_code == 401
-    assert client.get("/ingest/status?job_id=x").status_code == 401
-    assert client.post("/signal/attention", json={"action": "dismiss", "item_id": "x"}).status_code == 401
+    with patch("ingest_jobs.start_job") as start_job, patch("ingest_jobs.get_job") as get_job, patch("today_signal.read_signal_cache") as read_cache:
+        assert client.post("/ingest", json={"url": "https://youtube.com/watch?v=x"}).status_code == 401
+        assert client.get("/ingest/status?job_id=x").status_code == 401
+        assert client.post("/signal/attention", json={"action": "dismiss", "item_id": "x"}).status_code == 401
+        start_job.assert_not_called()
+        get_job.assert_not_called()
+        read_cache.assert_not_called()
 
 
 def test_login_uses_csrf_and_creates_admin_session():
@@ -40,8 +46,35 @@ def test_admin_posts_require_csrf_but_track_stays_public():
     assert configured_client().post("/track", json={"kind": "test"}).status_code == 204
 
 
+def test_admin_mutations_proceed_with_known_csrf_and_page_exposes_it():
+    client = configured_client()
+    with client.session_transaction() as session:
+        session["daily_admin"] = True
+        session["admin_csrf"] = "known-token"
+    with patch("ingest_jobs.start_job", return_value={"status": "queued", "job_id": "job-1"}) as start_job:
+        response = client.post(
+            "/ingest",
+            json={"url": "https://youtube.com/watch?v=x"},
+            headers={"X-CSRF-Token": "known-token"},
+        )
+        assert response.status_code == 200
+        start_job.assert_called_once()
+    with patch("today_signal.read_signal_cache", return_value={"signals": [], "attention": []}), patch("today_signal.dismiss_attention_item", return_value=({"signals": [], "attention": []}, False)) as dismiss:
+        response = client.post(
+            "/signal/attention",
+            json={"action": "dismiss", "item_id": "x"},
+            headers={"X-CSRF-Token": "known-token"},
+        )
+        assert response.status_code == 200
+        dismiss.assert_called_once()
+    page = client.get("/")
+    assert b"X-CSRF-Token" in page.data
+    assert b"known-token" in page.data
+
+
 if __name__ == "__main__":
     test_anonymous_admin_routes_are_rejected()
     test_login_uses_csrf_and_creates_admin_session()
     test_admin_posts_require_csrf_but_track_stays_public()
+    test_admin_mutations_proceed_with_known_csrf_and_page_exposes_it()
     print("全部通过 ✅")

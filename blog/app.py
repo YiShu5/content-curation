@@ -63,6 +63,14 @@ app.jinja_env.filters['markdown'] = _render_markdown
 app.jinja_env.filters['strip_md'] = _strip_markdown
 
 
+@app.context_processor
+def admin_template_context():
+    return {
+        "is_admin": admin_auth.is_admin(),
+        "admin_csrf_token": admin_auth.csrf_token() if admin_auth.is_admin() else "",
+    }
+
+
 @app.after_request
 def prevent_admin_cache(response):
     if request.path.startswith(("/admin/", "/ingest", "/signal/attention")):

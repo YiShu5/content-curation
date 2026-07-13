@@ -290,4 +290,12 @@ content-curation/
 
 ## 📄 License
 
+## 管理员部署安全
+
+启用 `BLOG_ADMIN_PASSWORD` 时必须配置私有 `SECRET_KEY`。公网部署应使用 HTTPS
+并设置 `SESSION_COOKIE_SECURE=true`；同时在反向代理层对 `/admin/login` 做请求限流。
+不要用进程内限流替代代理限流，多 worker 部署下它无法提供一致保护。
+
+---
+
 MIT
