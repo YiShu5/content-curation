@@ -6,7 +6,9 @@ import json
 import html
 import os
 import time
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
 from flask import Flask, render_template, abort, Response, request, send_file, redirect, url_for
@@ -54,6 +56,13 @@ if _env_path.exists():
 from config import Config
 from product_schema import TOPICS
 import admin_auth
+from daily_issues import (
+    DailyIssueCorrupt,
+    DailyIssueStore,
+    DailyIssueValidationError,
+    format_share_text,
+    validate_issue_date,
+)
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -293,6 +302,47 @@ def load_archive_records():
 
 
 # ── 路由 ──────────────────────────────────────────────────────────────────
+def _issue_store():
+    return DailyIssueStore(
+        Path(app.config["DAILY_ISSUES_DIR"]),
+        app.config["BLOG_TIMEZONE"],
+    )
+
+
+def _local_now():
+    return datetime.now(ZoneInfo(app.config["BLOG_TIMEZONE"]))
+
+
+def _stable_issue_url(issue_date):
+    base = str(app.config.get("PUBLIC_BASE_URL") or "").rstrip("/")
+    if base:
+        return f"{base}/daily/{issue_date}"
+    return url_for("daily_issue", issue_date=issue_date, _external=True)
+
+
+def _issue_view(issue, *, is_home, daily_error=""):
+    today = _local_now().date().isoformat()
+    issue_date = issue.get("issue_date") if issue else ""
+    canonical = _stable_issue_url(issue_date) if issue_date else ""
+    admin = admin_auth.is_admin()
+    admin_action = "publish" if is_home and issue_date != today else ("revise" if issue else "publish")
+    admin_target_date = issue_date if admin_action == "revise" else today
+    public_base = str(app.config.get("PUBLIC_BASE_URL") or request.url_root).rstrip("/")
+    return {
+        "issue": issue,
+        "daily_error": daily_error,
+        "is_home": is_home,
+        "is_current_day": issue_date == today,
+        "canonical_url": canonical,
+        "og_image_url": f"{public_base}/static/og-daily.png",
+        "share_text": format_share_text(issue, canonical) if issue else "",
+        "is_admin": admin,
+        "admin_action": admin_action,
+        "admin_target_date": admin_target_date,
+        "current_issue_date": today,
+    }
+
+
 @app.route("/")
 def index():
     records = load_archive_records()
@@ -311,29 +361,37 @@ def index():
         if v:
             _vc[v] = _vc.get(v, 0) + 1
     verdicts = [{"name": v, "count": _vc[v]} for v in _verdict_order if v in _vc]
-    # 今日判断（页面只读缓存，永不阻塞；缓存由 `run.sh signals` 后台生成）
-    signals = []
-    breaking = None
-    attention = []
-    signal_meta = {}
-    signal_ran = False  # 区分「已生成但降噪后为 0」与「从未生成」
-    try:
-        import today_signal
-        cached = today_signal.read_signal_cache()
-        signal_ran = cached is not None
-        signal_meta = today_signal.enrich_cached_link_quotes(
-            cached if cached is not None else today_signal.missing_signal_state(),
-            records,
-        )
-        signals = signal_meta.get("signals") or []
-        breaking = signal_meta.get("breaking")
-        attention = signal_meta.get("attention") or []
-    except Exception as e:
-        print(f"[WARN] 今日判断读取失败（不影响页面）: {e}")
+    store = _issue_store()
+    issue = store.latest()
+    unrecoverable = store.unrecoverable_dates()
+    daily_error = ""
+    if unrecoverable and (not issue or max(unrecoverable) >= issue["issue_date"]):
+        issue = None
+        daily_error = "最新一期暂时无法读取，请稍后再试。"
     return render_template("index.html", records=records, topics=used_topics,
                            topic_counts=topic_counts, verdicts=verdicts,
-                           breaking=breaking, signals=signals, attention=attention,
-                           signal_meta=signal_meta, signal_ran=signal_ran)
+                           **_issue_view(issue, is_home=True, daily_error=daily_error))
+
+
+@app.get("/daily")
+def daily_archive():
+    return render_template("daily_archive.html", issues=_issue_store().list_issues())
+
+
+@app.get("/daily/<issue_date>")
+def daily_issue(issue_date):
+    try:
+        validate_issue_date(issue_date)
+    except (ValueError, DailyIssueValidationError):
+        abort(404)
+    try:
+        issue = _issue_store().get(issue_date)
+    except DailyIssueCorrupt:
+        app.logger.exception("daily issue snapshot is corrupt")
+        return render_template("daily_unavailable.html", issue_date=issue_date), 503
+    if not issue:
+        abort(404)
+    return render_template("daily.html", **_issue_view(issue, is_home=False))
 
 
 # 本地 archive 索引缓存：

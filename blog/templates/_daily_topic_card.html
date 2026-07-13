@@ -1,0 +1,31 @@
+<article class="daily-topic daily-topic-rank-{{ topic.rank }}">
+  <header>
+    <span class="daily-topic-rank">{{ '%02d'|format(topic.rank) }}</span>
+    {% if topic.category %}<span class="daily-topic-category">{{ topic.category }}</span>{% endif %}
+    <h2>{{ topic.title }}</h2>
+  </header>
+  <div class="daily-topic-body">
+    <h3>发生了什么</h3>
+    <p>{{ topic.what_happened }}</p>
+    {% if topic.discussion_focus %}
+    <h3>都在讨论什么</h3>
+    <ul>
+      {% for focus in topic.discussion_focus %}<li>{{ focus }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+    <div class="daily-topic-judgment">
+      <strong>为什么排在这里</strong>
+      <p>{{ topic.why_ranked }}</p>
+    </div>
+  </div>
+  {% if topic.sources %}
+  <details class="daily-sources">
+    <summary>查看信源{% if topic.independent_source_count >= 2 %} · {{ topic.independent_source_count }} 个独立来源{% endif %}</summary>
+    <ul>
+      {% for source in topic.sources %}
+      <li><a href="{{ source.canonical_url }}" target="_blank" rel="noopener noreferrer">{{ source.publisher }} · {{ source.title }}</a></li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+</article>

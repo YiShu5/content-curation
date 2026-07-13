@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}降噪｜往期简报{% endblock %}
+{% block body_class %}daily-page{% endblock %}
+{% block content %}
+<section class="daily-archive" aria-labelledby="archiveTitle">
+  <header><p>每日降噪</p><h1 id="archiveTitle">往期简报</h1></header>
+  {% if issues %}
+  <ol>
+    {% for row in issues %}
+    <li><a href="{{ url_for('daily_issue', issue_date=row.issue_date) }}"><time datetime="{{ row.issue_date }}">{{ row.issue_date }}</time><strong>{{ row.topics[0].title }}</strong><span>第 {{ '%03d'|format(row.issue_number) }} 期</span></a></li>
+    {% endfor %}
+  </ol>
+  {% else %}<p>还没有可查看的往期简报。</p>{% endif %}
+</section>
+{% endblock %}

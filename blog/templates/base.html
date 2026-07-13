@@ -8,9 +8,10 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700;900&display=swap" rel="stylesheet">
+    {% block extra_styles %}{% endblock %}
     {% block extra_head %}{% endblock %}
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
     <header class="site-header">
         <div class="header-inner">
             <div class="header-brand">
@@ -26,6 +27,10 @@
                        value="{{ query|default('') }}" autocomplete="off" required>
                 <button type="submit" aria-label="搜索">搜索</button>
             </form>
+            <nav class="header-nav" aria-label="主导航">
+                <a href="{{ url_for('daily_archive') }}">往期</a>
+            </nav>
+            {% block header_actions %}{% endblock %}
         </div>
     </header>
 
@@ -74,5 +79,6 @@
         });
     })();
     </script>
+    {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -1,0 +1,23 @@
+{% if issue.attention %}
+<section class="daily-attention" aria-labelledby="dailyAttentionTitle">
+  <header>
+    <p>还没进入今日三条</p>
+    <h2 id="dailyAttentionTitle">热议浮现</h2>
+  </header>
+  <div class="daily-attention-list">
+    {% for item in issue.attention %}
+    <article class="daily-attention-item">
+      <span>{{ {'rising':'升温中','watch':'观察中','stable':'持续中'}.get(item.attention_status, '观察中') }}</span>
+      <h3>{{ item.title }}</h3>
+      <p>{{ item.why_ranked }}</p>
+      {% if item.sources %}
+      <details class="daily-sources">
+        <summary>查看信源{% if item.independent_source_count >= 2 %} · {{ item.independent_source_count }} 个独立来源{% endif %}</summary>
+        <ul>{% for source in item.sources %}<li><a href="{{ source.canonical_url }}" target="_blank" rel="noopener noreferrer">{{ source.publisher }} · {{ source.title }}</a></li>{% endfor %}</ul>
+      </details>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
