@@ -5,6 +5,7 @@
 import hashlib
 import json
 import html
+import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -719,4 +720,11 @@ def signal_card():
 
 # ── 启动 ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5055)
+    # 默认只监听本机且关闭 debug：Werkzeug 调试器可执行任意代码，
+    # 配 0.0.0.0 等于向所在网络开远程后门。开发需要热重载/局域网访问时
+    # 用 FLASK_DEBUG=true / BLOG_HOST=0.0.0.0 显式打开。
+    app.run(
+        debug=os.getenv("FLASK_DEBUG", "").lower() == "true",
+        host=os.getenv("BLOG_HOST", "127.0.0.1"),
+        port=int(os.getenv("BLOG_PORT", "5055")),
+    )
