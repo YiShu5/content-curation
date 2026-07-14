@@ -93,6 +93,7 @@ def test_untrusted_source_mutations_are_ignored_or_rejected():
 def test_text_limits_accept_boundary_and_reject_boundary_plus_one():
     fields = {
         "category": 20, "title": 60, "what_happened": 160, "why_ranked": 120,
+        "missing_angle": 80,
     }
     for field, limit in fields.items():
         assert apply_selection(draft_fixture(), [{"topic_id": "topic-a", field: "x" * limit}])
@@ -100,10 +101,10 @@ def test_text_limits_accept_boundary_and_reject_boundary_plus_one():
             draft_fixture(), [{"topic_id": "topic-a", field: "x" * (limit + 1)}]
         ))
     assert apply_selection(draft_fixture(), [{
-        "topic_id": "topic-a", "discussion_focus": ["x" * 32] * 3
+        "topic_id": "topic-a", "discussion_focus": ["x" * 32] * 5
     }])
     assert_raises(lambda: apply_selection(draft_fixture(), [{
-        "topic_id": "topic-a", "discussion_focus": ["x"] * 4
+        "topic_id": "topic-a", "discussion_focus": ["x"] * 6
     }]))
     assert_raises(lambda: apply_selection(draft_fixture(), [{
         "topic_id": "topic-a", "discussion_focus": ["x" * 33]

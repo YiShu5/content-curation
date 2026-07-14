@@ -8,14 +8,26 @@
 body.daily-page { background: #f7f3ed; color: #181a1d; }
 body.daily-page .container { max-width: 1180px; }
 .daily-brief { max-width: 1180px; margin: 0 auto 24px; }
-.daily-masthead { position: relative; padding: 42px 34px 24px; border-bottom: 1px solid #ddd7cf; }
+/* 首屏即一期：桌面端简报撑满首屏高度，热议浮现/内容库从第二屏开始 */
+@media (min-width: 761px) {
+  .daily-brief:has(.daily-topic-grid) {
+    display: flex; flex-direction: column;
+    min-height: calc(100vh - var(--header-height, 56px));
+    min-height: calc(100dvh - var(--header-height, 56px));
+  }
+  .daily-brief .daily-topic-grid { flex: 1 0 auto; }
+}
+.daily-masthead { position: relative; padding: 18px 28px 12px; border-bottom: 1px solid #ddd7cf; }
 .daily-edition { margin: 0; color: #377fac; font-size: 12px; font-weight: 850; letter-spacing: .13em; text-transform: uppercase; }
-.daily-masthead h1 { max-width: 740px; margin: 8px 0 10px; font: 900 40px/1.08 var(--font-serif); letter-spacing: -.055em; }
-.daily-masthead > p:not(.daily-edition) { max-width: 670px; margin: 0 0 16px; color: #62605c; font-size: 15px; line-height: 1.75; }
-.daily-masthead > span { display: inline-block; padding: 6px 10px; border: 1px solid #d8d2ca; border-radius: 999px; color: #77736d; background: rgba(255,255,255,.42); font-size: 11px; font-weight: 700; }
-.daily-topic-grid { display: grid; grid-template-columns: minmax(0, 1.44fr) minmax(280px, .8fr); gap: 12px; padding: 22px 0; }
-.daily-topic { min-width: 0; border: 1px solid #ddd6cd; border-radius: 15px; background: #fffdfa; padding: 17px; box-shadow: 0 7px 24px rgba(42,37,31,.035); }
-.daily-topic-rank-1 { grid-column: 1; grid-row: 1 / span 2; min-height: 276px; padding: 22px; background: #f0ddd0; border-color: #dfbba7; }
+.daily-masthead h1 { max-width: 740px; margin: 6px 0 6px; font: 900 30px/1.12 var(--font-serif); letter-spacing: -.05em; }
+.daily-masthead > p:not(.daily-edition) { display: inline; margin: 0; color: #62605c; font-size: 13px; line-height: 1.6; }
+.daily-masthead > span { display: inline-block; margin-left: 10px; padding: 4px 9px; border: 1px solid #d8d2ca; border-radius: 999px; color: #77736d; background: rgba(255,255,255,.42); font-size: 10px; font-weight: 700; vertical-align: 1px; }
+.daily-topic-grid { display: grid; grid-template-columns: minmax(0, 1.44fr) minmax(280px, .8fr); gap: 10px; padding: 14px 0 16px; }
+.daily-topic { min-width: 0; border: 1px solid #ddd6cd; border-radius: 15px; background: #fffdfa; padding: 14px; box-shadow: 0 7px 24px rgba(42,37,31,.035); }
+.daily-topic-rank-1 { grid-column: 1; grid-row: 1 / span 2; display: flex; flex-direction: column; padding: 18px; background: #f0ddd0; border-color: #dfbba7; }
+/* 大卡内容短于右列时由 focus 区吸收空档，"为什么上榜"贴住卡底；条目在面板内垂直居中 */
+.daily-topic-rank-1 .daily-focus { display: flex; flex-direction: column; flex: 1 0 auto; }
+.daily-topic-rank-1 .daily-focus ul { margin: auto 0; }
 .daily-topic-rank-2 { grid-column: 2; grid-row: 1; }
 .daily-topic-rank-3 { grid-column: 2; grid-row: 2; }
 .daily-topic-count-1 { grid-template-columns: 1fr; }
@@ -25,21 +37,26 @@ body.daily-page .container { max-width: 1180px; }
 .daily-topic-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; color: #77736f; font-size: 10px; font-weight: 750; letter-spacing: .025em; }
 .daily-rank { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #191b1e; color: #fff; font-weight: 900; }
 .daily-source-count { color: #387fa9; }
-.daily-topic h2 { margin: 12px 0 9px; color: #181a1d; overflow-wrap: anywhere; }
-.daily-topic-rank-1 h2 { display: -webkit-box; overflow: hidden; font: 850 28px/1.25 var(--font-serif); -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.daily-topic h2 { margin: 9px 0 7px; color: #181a1d; overflow-wrap: anywhere; }
+.daily-topic-rank-1 h2 { display: -webkit-box; overflow: hidden; font: 850 24px/1.22 var(--font-serif); -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 .daily-topic-rank-2 h2, .daily-topic-rank-3 h2 { display: -webkit-box; overflow: hidden; font: 850 18px/1.3 var(--font-serif); -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .daily-what { margin: 0; color: #55534f; font-size: 13px; line-height: 1.65; }
+.daily-topic-rank-1 .daily-what { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 .daily-topic-rank-2 .daily-what, .daily-topic-rank-3 .daily-what,
-.daily-topic-rank-2 .daily-why, .daily-topic-rank-3 .daily-why { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
-.daily-focus { margin: 18px 0 16px; padding: 14px 15px; border-radius: 11px; background: rgba(255,253,250,.54); }
+.daily-topic-rank-2 .daily-why, .daily-topic-rank-3 .daily-why { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.daily-focus { margin: 12px 0 10px; padding: 11px 13px; border-radius: 11px; background: rgba(255,253,250,.54); }
 .daily-focus strong { font-size: 12px; }
 .daily-focus ul { margin: 8px 0 0; padding-left: 19px; color: #4e4b47; font-size: 12px; line-height: 1.65; }
-.daily-why { margin: 14px 0 0; border-top: 1px solid rgba(139,88,58,.22); padding-top: 11px; color: #9b4b30; font-size: 12px; line-height: 1.6; }
+.daily-focus li + li { margin-top: 5px; }
+.daily-missing { margin: 12px 0 0; border-top: 1px dashed #d9cbbd; padding-top: 10px; color: #6b675f; font-size: 12px; line-height: 1.6; }
+.daily-missing span { display: block; margin-bottom: 3px; color: #8a857c; font-size: 10px; font-weight: 900; letter-spacing: .08em; }
+.daily-why { margin: 10px 0 0; border-top: 1px solid rgba(139,88,58,.22); padding-top: 9px; color: #9b4b30; font-size: 12px; line-height: 1.6; }
 .daily-why span { display: block; margin-bottom: 3px; color: #633727; font-size: 10px; font-weight: 900; letter-spacing: .08em; }
-.daily-evidence { margin-top: 12px; color: #77736e; font-size: 11px; }
+.daily-evidence { margin-top: 9px; color: #77736e; font-size: 11px; }
 .daily-evidence summary { width: max-content; cursor: pointer; font-weight: 750; }
 .daily-evidence ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.6; }
 .daily-evidence a { color: #317ca9; overflow-wrap: anywhere; }
+.daily-source-unverified { color: #a08d6e; font-weight: 750; }
 .daily-attention { margin-top: 4px; padding: 18px 20px; border: 1px solid #d8d1c8; border-radius: 14px; background: #ebe7e1; }
 .daily-attention header { display: flex; align-items: baseline; gap: 12px; }
 .daily-attention header p { margin: 0; color: #858078; font-size: 10px; font-weight: 800; letter-spacing: .08em; }

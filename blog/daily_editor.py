@@ -8,7 +8,7 @@ from pathlib import Path
 from daily_issues import DAILY_TEXT_LIMITS
 
 
-EDITABLE_FIELDS = {"title", "what_happened", "discussion_focus", "why_ranked", "category"}
+EDITABLE_FIELDS = {"title", "what_happened", "discussion_focus", "why_ranked", "category", "missing_angle"}
 
 
 def trusted_draft(cache, *, expected_date):
@@ -85,6 +85,7 @@ def _validate_editable_text(topic):
         ("title", DAILY_TEXT_LIMITS["title_max"], True),
         ("what_happened", DAILY_TEXT_LIMITS["what_happened_max"], True),
         ("why_ranked", DAILY_TEXT_LIMITS["why_ranked_max"], True),
+        ("missing_angle", DAILY_TEXT_LIMITS["missing_angle_max"], False),
     )
     for field, limit, required in checks:
         value = topic.get(field, "")
