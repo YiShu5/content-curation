@@ -13,3 +13,12 @@ assert.deepEqual(scoreDimensions(), [
   { key: 'storytelling', label: '故事可读', max: 25 },
 ]);
 console.log('✓ product schema');
+
+import { verdictOf } from './product-schema.js';
+assert.equal(verdictOf(90), '必读');
+assert.equal(verdictOf(89), '强烈推荐');
+assert.equal(verdictOf(75), '强烈推荐');
+assert.equal(verdictOf(60), '推荐');
+assert.equal(verdictOf(45), '一般');
+assert.equal(verdictOf(44), '可跳过');
+console.log('✓ verdict thresholds');
