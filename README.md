@@ -194,6 +194,8 @@ python app.py
 
 实时 `today_signal.json` 只提供发布草稿。公开首页只读取已发布快照，不会随缓存自动漂移。
 
+生产环境已部署在 [yishucc.top](https://yishucc.top)。腾讯云服务器的首次安装、日常更新、日志检查和回滚步骤见 [部署说明](deploy/README.md)。
+
 **详情页**：大图 Hero + 侧边导航 + 金句精选 + 核心观点 + 深度摘要
 
 ---
