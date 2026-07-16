@@ -21,6 +21,7 @@ usage() {
   echo "  signals                  后台生成「今日必读」缓存（网页只读）"
   echo "  publish-daily            带闸门自动发布今日简报（配合 signals）"
   echo "  daily-brief              【每日定时】signals → publish-daily → 飞书通知结果"
+  echo "  hot-watch [--dry-run]    【盘中定时】轮询 AI HOT，巨热点即时推飞书"
   echo "  enrich-guests [--force]  为已归档内容生成嘉宾介绍（头衔/背景/本期角色）"
   echo "  select-quotes [--n 3]    从已有金句中精选最精华的 N 条"
   echo "  refresh                  新归档后一把补全：嘉宾+金句精选+索引+今日必读"
@@ -113,6 +114,14 @@ ${brief_summary:-signals 完成}" || true
 ${brief_summary:-$(echo "$brief_out" | tail -2)}" || true
     fi
     exit $brief_status
+    ;;
+  hot-watch)
+    # 【盘中定时】轮询 AI HOT，讨论度跨过阈值的新条目即时推飞书（HOT_WATCH_* env 可调）
+    if [ -x "blog/.venv/bin/python" ]; then
+      blog/.venv/bin/python blog/hot_watch.py "$@"
+    else
+      python blog/hot_watch.py "$@"
+    fi
     ;;
   enrich-guests)
     # 为已归档内容生成嘉宾介绍（头衔/背景/本期角色）
