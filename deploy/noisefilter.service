@@ -1,0 +1,20 @@
+[Unit]
+Description=NoiseFilter Flask blog
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/srv/noisefilter/blog
+EnvironmentFile=/etc/noisefilter.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/srv/noisefilter/blog/.venv/bin/gunicorn --workers 2 --threads 2 --bind 127.0.0.1:5055 --timeout 120 --access-logfile - --error-logfile - app:app
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

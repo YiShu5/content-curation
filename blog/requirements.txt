@@ -4,3 +4,4 @@ markdown>=3.5
 numpy>=1.26
 python-dotenv>=1.0.0
 trafilatura>=2.0.0
+gunicorn>=22.0,<24.0
