@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""盘中巨热点监控：轮询 AI HOT，讨论度跨过阈值的新条目即时推送飞书。
+"""盘中热度新高监控：轮询 AI HOT，刷新当日最高讨论度的新条目即时推送飞书。
 
 用法：blog/.venv/bin/python blog/hot_watch.py [--dry-run]
 配合 cron 每 30 分钟一轮（对齐上游 30 分钟缓存 TTL）。
@@ -36,7 +36,9 @@ from today_signal import fetch_aihot  # noqa: E402
 
 STATE_PATH = Path(__file__).resolve().parent / "data" / "hot_watch_state.json"
 
-THRESHOLD = int(os.getenv("HOT_WATCH_THRESHOLD", "88"))
+# 入围下限：只有「≥此分 且 刷新当日最高分」的新条目才推送（相对触发，抗分数尺度漂移；
+# 2026-07 实测 AI HOT 48h 内最高仅 83 分，绝对高阈值会让监控永远不触发）
+THRESHOLD = int(os.getenv("HOT_WATCH_THRESHOLD", "78"))
 WINDOW_HOURS = int(os.getenv("HOT_WATCH_WINDOW_HOURS", "6"))
 QUIET_HOURS = os.getenv("HOT_WATCH_QUIET", "")  # 如 "23-8"；空 = 全天实时
 MAX_PER_MSG = int(os.getenv("HOT_WATCH_MAX_PER_MSG", "5"))
@@ -125,32 +127,65 @@ def prune_state(state, now, ttl_hours=STATE_TTL_HOURS):
     return state
 
 
-def collect_pending(items, state, now, threshold=THRESHOLD):
-    """把「score≥阈值 且 未见过」的条目快照入库为 pending。
+def _safe_score(item):
+    try:
+        return int(item.get("score") or 0)
+    except (TypeError, ValueError):
+        return 0
 
-    低于阈值的绝不入库——先 70 分、后涨到阈值以上的条目要在跨线时刻触发。
-    字段全量快照进 state，滑出抓取窗口后重试仍能发出。
+
+def _champion_score(state, today):
+    champ = state.get("champion") or {}
+    if champ.get("date") != today:
+        return 0
+    try:
+        return int(champ.get("score") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def collect_pending(items, state, now, threshold=THRESHOLD):
+    """当日冠军规则：「score ≥ 下限 且 刷新当日最高分」的新条目入库为 pending。
+
+    - 冠军分按 Asia/Shanghai 自然日重置（跨零点后首条 ≥下限 的即当选）
+    - 已见条目（key 在 state）分数后涨只静默抬高冠军线，不重推
+    - 未当选的条目绝不入库——它日后真成了当日新高仍会触发
+    - 当选条目字段全量快照进 state，滑出抓取窗口后重试仍能发出
     """
+    today = now.date().isoformat()
+    best = _champion_score(state, today)
+
+    # 已通知过的新闻分数继续涨：抬线不重推，防止随后的次高分新条目冒充"新高"
     for item in items:
-        try:
-            score = int(item.get("score") or 0)
-        except (TypeError, ValueError):
+        score = _safe_score(item)
+        if score >= threshold and item_key(item) in state["items"] and score > best:
+            best = score
+
+    champion_item = None
+    for item in items:
+        score = _safe_score(item)
+        if score < threshold or score <= best:
             continue
-        if score < threshold:
+        if item_key(item) in state["items"]:
             continue
-        key = item_key(item)
-        if key in state["items"]:
-            continue
-        state["items"][key] = {
-            "title": str(item.get("title") or "")[:120],
-            "url": str(item.get("url") or ""),
-            "source": str(item.get("source") or ""),
-            "summary": str(item.get("summary") or "")[:200],
-            "score": score,
+        if champion_item is None or score > _safe_score(champion_item):
+            champion_item = item
+
+    if champion_item is not None:
+        best = _safe_score(champion_item)
+        state["items"][item_key(champion_item)] = {
+            "title": str(champion_item.get("title") or "")[:120],
+            "url": str(champion_item.get("url") or ""),
+            "source": str(champion_item.get("source") or ""),
+            "summary": str(champion_item.get("summary") or "")[:200],
+            "score": best,
             "status": "pending",
             "first_over_at": now.isoformat(timespec="seconds"),
             "attempts": 0,
         }
+
+    if best > 0:
+        state["champion"] = {"date": today, "score": best}
     return state
 
 
@@ -185,10 +220,10 @@ def format_message(batch, now_local, max_items=MAX_PER_MSG):
     header_time = now_local.strftime("%m-%d %H:%M")
     lines = []
     if len(batch) == 1:
-        lines.append(f"🔥 盘中巨热点 {header_time}")
+        lines.append(f"🔥 盘中热度新高 {header_time}")
         lines.extend(_item_lines(batch[0], now_local))
     else:
-        lines.append(f"🔥 盘中巨热点 {header_time}（{len(batch)} 条）")
+        lines.append(f"🔥 盘中热度新高 {header_time}（{len(batch)} 条）")
         for index, row in enumerate(batch[:max_items], 1):
             lines.extend(_item_lines(row, now_local, number=index))
         rest = batch[max_items:]
@@ -234,7 +269,8 @@ def run_once(*, fetch=None, send=None, now=None, state_path=STATE_PATH,
         for row in state["items"].values():
             row["status"] = "seeded"
         save_state(state, state_path)
-        print(f"[hot-watch] 首次运行：播种 {len(state['items'])} 条存量热点，不通知")
+        champ = (state.get("champion") or {}).get("score", "无")
+        print(f"[hot-watch] 首次运行：播种完成（当日冠军 {champ} 分），不通知")
         return 0
 
     collect_pending(items, state, now, threshold)

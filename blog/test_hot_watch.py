@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from hot_watch import run_once, load_state
+from hot_watch import format_message, load_state, run_once
 
 TZ = ZoneInfo("Asia/Shanghai")
 NOW = datetime(2026, 7, 16, 14, 37, tzinfo=TZ)
@@ -46,7 +46,7 @@ def seeded(tmp, items, now=NOW):
     return path
 
 
-def test_first_run_seeds_silently():
+def test_first_run_seeds_silently_and_sets_champion():
     with TemporaryDirectory() as tmp:
         path = Path(tmp) / "state.json"
         send = Recorder()
@@ -56,6 +56,7 @@ def test_first_run_seeds_silently():
         state = load_state(path)
         rows = list(state["items"].values())
         assert len(rows) == 1 and rows[0]["status"] == "seeded"
+        assert state["champion"] == {"date": "2026-07-16", "score": 95}
 
 
 def test_new_high_score_item_notifies_once():
@@ -86,7 +87,7 @@ def test_below_threshold_then_crossing_triggers():
         assert len(send.sent) == 1 and "低开高走" in send.sent[0]
 
 
-def test_multiple_items_merge_into_one_message():
+def test_same_round_only_champion_pushes():
     with TemporaryDirectory() as tmp:
         path = seeded(tmp, [])
         send = Recorder()
@@ -94,23 +95,41 @@ def test_multiple_items_merge_into_one_message():
         run_once(fetch=lambda h: items, send=send, now=NOW, state_path=path)
         assert len(send.sent) == 1
         text = send.sent[0]
-        assert "（3 条）" in text and "1. 乙" in text and "2. 丙" in text and "3. 甲" in text
-
-
-def test_overflow_items_folded_into_tail_and_all_marked():
-    with TemporaryDirectory() as tmp:
-        path = seeded(tmp, [])
-        send = Recorder()
-        items = [item(f"新闻{i}", 88 + i) for i in range(7)]
-        run_once(fetch=lambda h: items, send=send, now=NOW, state_path=path)
-        text = send.sent[0]
-        assert "另有 2 条超阈值" in text
-        state = load_state(path)
-        assert all(row["status"] == "notified" for row in state["items"].values())
-        # 尾行提及的也算已通知，下一轮不再发
+        assert "乙" in text and "甲" not in text and "丙" not in text
+        # 次轮同批：甲/丙未超冠军 95，依旧不推
         send2 = Recorder()
         run_once(fetch=lambda h: items, send=send2, now=NOW, state_path=path)
         assert send2.sent == []
+
+
+def test_quiet_hours_accumulate_escalating_champions_then_merge():
+    with TemporaryDirectory() as tmp:
+        path = seeded(tmp, [])
+        send = Recorder()
+        t2 = datetime(2026, 7, 16, 2, 0, tzinfo=TZ)
+        t4 = datetime(2026, 7, 16, 4, 0, tzinfo=TZ)
+        run_once(fetch=lambda h: [item("夜半新高", 80)], send=send, now=t2,
+                 state_path=path, quiet_spec="23-8")
+        run_once(fetch=lambda h: [item("凌晨反超", 85)], send=send, now=t4,
+                 state_path=path, quiet_spec="23-8")
+        assert send.sent == []
+        morning = datetime(2026, 7, 16, 8, 7, tzinfo=TZ)
+        run_once(fetch=lambda h: [], send=send, now=morning,
+                 state_path=path, quiet_spec="23-8")
+        assert len(send.sent) == 1
+        text = send.sent[0]
+        assert "（2 条）" in text and "1. 凌晨反超" in text and "2. 夜半新高" in text
+
+
+def test_format_message_folds_overflow_into_tail():
+    rows = [
+        {"title": f"新闻{i}", "score": 88 + i, "source": "源", "summary": "", "url": f"https://e/{i}",
+         "first_over_at": NOW.isoformat(timespec="seconds")}
+        for i in range(7)
+    ]
+    rows.sort(key=lambda r: -r["score"])
+    text = format_message(rows, NOW, max_items=5)
+    assert "（7 条）" in text and "另有 2 条超阈值" in text
 
 
 def test_quiet_hours_hold_then_morning_catchup_with_detected_note():
@@ -185,6 +204,51 @@ def test_threshold_override():
         run_once(fetch=lambda h: [item("89分新闻", 89)], send=send, now=NOW,
                  state_path=path, threshold=90)
         assert send.sent == []
+
+
+def test_lower_item_after_champion_not_pushed():
+    with TemporaryDirectory() as tmp:
+        path = seeded(tmp, [])
+        send = Recorder()
+        run_once(fetch=lambda h: [item("今日冠军", 85)], send=send, now=NOW, state_path=path)
+        run_once(fetch=lambda h: [item("次高新闻", 82)], send=send, now=NOW, state_path=path)
+        assert len(send.sent) == 1 and "次高新闻" not in send.sent[0]
+
+
+def test_escalating_champions_push_in_sequence():
+    with TemporaryDirectory() as tmp:
+        path = seeded(tmp, [])
+        send = Recorder()
+        run_once(fetch=lambda h: [item("上午头条", 85)], send=send, now=NOW, state_path=path)
+        run_once(fetch=lambda h: [item("下午反超", 91)], send=send, now=NOW, state_path=path)
+        assert len(send.sent) == 2 and "下午反超" in send.sent[1]
+
+
+def test_midnight_resets_champion():
+    with TemporaryDirectory() as tmp:
+        path = seeded(tmp, [])
+        send = Recorder()
+        day1 = datetime(2026, 7, 16, 20, 0, tzinfo=TZ)
+        run_once(fetch=lambda h: [item("昨日冠军", 85)], send=send, now=day1, state_path=path)
+        day2 = datetime(2026, 7, 17, 9, 0, tzinfo=TZ)
+        run_once(fetch=lambda h: [item("次日平开", 79)], send=send, now=day2, state_path=path)
+        assert len(send.sent) == 2 and "次日平开" in send.sent[1]
+
+
+def test_risen_score_of_known_item_raises_bar_silently():
+    with TemporaryDirectory() as tmp:
+        path = seeded(tmp, [])
+        send = Recorder()
+        first = item("持续发酵", 85, url="https://news.example/rise-again")
+        run_once(fetch=lambda h: [first], send=send, now=NOW, state_path=path)
+        assert len(send.sent) == 1
+        # 同一条新闻分数涨到 93：不重推，但冠军线被抬高
+        risen = dict(first, score=93)
+        run_once(fetch=lambda h: [risen], send=send, now=NOW, state_path=path)
+        assert len(send.sent) == 1
+        # 随后 89 分的新条目低于被抬高的冠军线，不得冒充新高
+        run_once(fetch=lambda h: [risen, item("次高冒充者", 89)], send=send, now=NOW, state_path=path)
+        assert len(send.sent) == 1
 
 
 def test_dry_run_previews_without_marking_notified():
