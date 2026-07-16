@@ -19,6 +19,7 @@ usage() {
   echo "  all [--limit N]          执行 batch（交互），完成后同步多维表格 + 飞书文档"
   echo "  embed                    构建语义搜索向量索引（智谱 embedding-3）"
   echo "  signals                  后台生成「今日必读」缓存（网页只读）"
+  echo "  publish-daily            【每日定时】带闸门自动发布今日简报（配合 signals）"
   echo "  enrich-guests [--force]  为已归档内容生成嘉宾介绍（头衔/背景/本期角色）"
   echo "  select-quotes [--n 3]    从已有金句中精选最精华的 N 条"
   echo "  refresh                  新归档后一把补全：嘉宾+金句精选+索引+今日必读"
@@ -88,6 +89,14 @@ case "$CMD" in
       blog/.venv/bin/python blog/today_signal.py
     else
       python blog/today_signal.py
+    fi
+    ;;
+  publish-daily)
+    # 带闸门自动发布今日简报：闸门不过宁可不发（先跑 signals 生成草稿）
+    if [ -x "blog/.venv/bin/python" ]; then
+      blog/.venv/bin/python blog/auto_publish.py
+    else
+      python blog/auto_publish.py
     fi
     ;;
   enrich-guests)
