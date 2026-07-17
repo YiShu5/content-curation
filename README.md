@@ -182,7 +182,8 @@ archive/
 cd blog
 pip install flask
 python app.py
-# 打开 http://localhost:5055
+# 打开 http://localhost:5055（默认只监听 127.0.0.1、debug 关闭；
+# 开发热重载用 FLASK_DEBUG=true，局域网访问用 BLOG_HOST=0.0.0.0）
 ```
 
 **首页**：展示最新一期「降噪每日简报」——左侧第 1 条大卡片、右侧第 2/3 条小卡片，下面依次是「热议浮现」和现有深度内容库。
@@ -309,14 +310,16 @@ content-curation/
 
 ---
 
-## 📄 License
-
 ## 管理员部署安全
 
 启用 `BLOG_ADMIN_PASSWORD` 时必须配置私有 `SECRET_KEY`。公网部署应使用 HTTPS
 并设置 `SESSION_COOKIE_SECURE=true`；同时在反向代理层对 `/admin/login` 做请求限流。
 不要用进程内限流替代代理限流，多 worker 部署下它无法提供一致保护。
 
+服务器定时任务（每日简报自动发布、盘中热点监控、飞书通知）见 [docs/OPERATIONS.md](docs/OPERATIONS.md)。
+
 ---
 
-MIT
+## 📄 License
+
+[MIT](LICENSE)

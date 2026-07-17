@@ -1,12 +1,18 @@
 # CLAUDE.md — content-curation（NoiseFilter / 降噪）
 
 内容策展工具：抓取音视频长内容 → AI 转录/改写/打分 → 归档 + 飞书 + 博客。总览见 README.md。
-本文件只记**易踩坑的项目约定**（与全局 ~/.claude/CLAUDE.md 合并生效）。
+本文件只记**易踩坑的项目约定**（若存在全局 ~/.claude/CLAUDE.md 则合并生效）。
 
 ## 运行
-- 博客用 `blog/.venv` 跑，端口 **5055**（5000 会撞 macOS AirPlay Receiver）。
+- 博客用 `blog/.venv` 跑，端口 **5055**（5000 会撞 macOS AirPlay Receiver）；默认只监听 127.0.0.1 且 debug 关（Werkzeug 调试器=任意代码执行），开发要热重载/局域网用 `FLASK_DEBUG=true` / `BLOG_HOST=0.0.0.0` 显式打开。
 - 两个 Python 环境：根 `.venv`（fetch.py，含 yt-dlp）+ `blog/.venv`（flask/numpy/markdown/dotenv）。
-- 统一入口 `run.sh <cmd>`：auto / url / batch / sync / sync-doc / embed / enrich-guests / select-quotes / rescore。
+- 统一入口 `run.sh <cmd>`：auto / batch / url / rewrite / sync / sync-doc / embed / signals / publish-daily / daily-brief / hot-watch / enrich-guests / select-quotes / refresh / daily / all。重打分是 `scripts/rescore.py`（不是 run.sh 子命令）。
+
+## 生产与自动化（2026-07，运维细节见 docs/OPERATIONS.md）
+- 线上 https://www.yishucc.top/（VPS）；服务器 `.env` 必须有 `BLOG_TIMEZONE=Asia/Shanghai`，否则"当日"判断差 15 小时。
+- signals 必须在每日 8:30 之后跑（freshness 窗口锚定 8:30 投递时间，早跑当天就过期）。
+- ⚠️ hot-watch 的 AGI Hunt 轨只用免鉴权 `agihunt.info/api/trends`，**绝不接其 /agent/v1 skill 体系**（远程指令通道 + 条款禁轮询）；heat 与 AI HOT score 两套量纲**绝不换算混轨**。
+- 每日简报快照加载校验要求清洗结果与存盘**逐字节相等**——给 topic 加可选字段必须"空值省略键"，否则历史快照全部判损坏（2026-07-14 踩过）。
 
 ## 密钥与产物（勿提交）
 - `config/.env` 存所有密钥（飞书/DeepSeek/智谱/BibiGPT），已 gitignore，**绝不入库**。
@@ -23,6 +29,7 @@
 
 ## 评分体系（2026-06 已重构）
 - 现行三维：**洞察原创 0-50 + 信源质量 0-25 + 故事可读 0-25**（旧 ai_relevance/storytelling/bonus 已废弃，旧分备份在 metadata 的 `scores_v1`）。
+- 维度上限与评级阈值**单源于 `config/product_schema.json`**（rewrite.js 与 rescore.py 共用）；改评分体系只改 schema，两侧代码都对模型分数钳位重算、不信任 LLM 算术。
 - 同步脚本已对齐新维度：`sync-feishu.js` 推 洞察原创/信源质量/故事可读（数字列，缺失自动建），`sync-feishu-doc.js` 文档同理。飞书表里旧的 AI相关性/故事性/加分项 列已不再写入（可手动删）。
 - 重打分用 `scripts/rescore.py`（从已有摘要重算，不重跑整条流水线）。
 - ⚠️ `sync-feishu.js` 只**新建**记录、不更新已有；重跑生成的 archive 其 `feishu_record_id` 为 null，直接 sync 会产生重复记录。
