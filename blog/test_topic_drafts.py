@@ -174,7 +174,7 @@ def test_candidate_defaults_and_topic_aliases_come_from_trusted_cluster():
         window_hours=48,
     )
     selected = draft["topics"][0]
-    assert selected["discussion_focus"] == ["one", "two", "three"]
+    assert selected["discussion_focus"] == ["one", "two", "three", "four"]
     assert selected["item_id"] == selected["topic_id"]
     assert selected["url"] == "https://official.ai/release"
     assert selected["source"] == "Official"

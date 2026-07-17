@@ -12,6 +12,7 @@
 """
 import json
 import sys
+from pathlib import Path
 
 from _common import chat_json, iter_metadata, require_api_key
 
@@ -44,7 +45,12 @@ total = 三者之和。verdict 按 total：≥90 必读｜75-89 强烈推荐｜6
 {body}
 """
 
-VERDICTS = [(90, "必读"), (75, "强烈推荐"), (60, "推荐"), (45, "一般"), (0, "可跳过")]
+# 维度上限与评级阈值单源于 config/product_schema.json（与 rewrite.js 共用）
+_SCHEMA = json.loads(
+    (Path(__file__).resolve().parent.parent / "config" / "product_schema.json")
+    .read_text(encoding="utf-8"))
+DIMENSIONS = [(d["key"], d["max"]) for d in _SCHEMA["score_dimensions"]]
+VERDICTS = [(t["min"], t["label"]) for t in _SCHEMA["verdict_thresholds"]]
 
 
 def verdict_of(total):
@@ -69,17 +75,9 @@ def rescore(title, guests, body):
             sc = 0
         return {"score": sc, "reason": (o.get("reason") or "").strip()}
 
-    insight = dim("insight", 50)
-    source = dim("source", 25)
-    story = dim("storytelling", 25)
-    total = insight["score"] + source["score"] + story["score"]
-    return {
-        "insight": insight,
-        "source": source,
-        "storytelling": story,
-        "total": total,
-        "verdict": verdict_of(total),
-    }
+    dims = {key: dim(key, cap) for key, cap in DIMENSIONS}
+    total = sum(v["score"] for v in dims.values())
+    return {**dims, "total": total, "verdict": verdict_of(total)}
 
 
 def main():

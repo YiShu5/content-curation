@@ -19,6 +19,7 @@
 {% include "_daily_brief.html" %}
 {% if issue %}
 <div class="daily-share"><button id="dailyCopyButton" type="button" aria-live="polite">复制本期 ↗</button></div>
+{% include "_daily_attention.html" %}
 <script id="dailySharePayload" type="application/json">{{ {'text': share_text}|tojson }}</script>
 {% endif %}
 {% endblock %}

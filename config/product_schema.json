@@ -14,5 +14,12 @@
     { "key": "insight", "label": "洞察原创", "max": 50 },
     { "key": "source", "label": "信源质量", "max": 25 },
     { "key": "storytelling", "label": "故事可读", "max": 25 }
+  ],
+  "verdict_thresholds": [
+    { "min": 90, "label": "必读" },
+    { "min": 75, "label": "强烈推荐" },
+    { "min": 60, "label": "推荐" },
+    { "min": 45, "label": "一般" },
+    { "min": 0, "label": "可跳过" }
   ]
 }

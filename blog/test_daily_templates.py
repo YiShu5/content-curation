@@ -30,7 +30,10 @@ def source(source_id="source-1", publisher="Official", status="readable"):
 def issue_fixture(topic_count=3, source_count=2, attention=None):
     topics = []
     for rank in range(1, topic_count + 1):
-        sources = [source(f"source-{rank}-{i}") for i in range(1, source_count + 1)]
+        sources = [
+            source(f"source-{rank}-{i}", publisher=f"Publisher {i}")
+            for i in range(1, source_count + 1)
+        ]
         topics.append({
             "topic_id": f"topic-{rank}",
             "rank": rank,
@@ -60,6 +63,12 @@ def render_brief(issue, *, is_home=True, is_current_day=True):
         )
 
 
+def render_attention(issue):
+    # 热议浮现已移出简报模板（首屏只保留当期三条），单独渲染
+    with app.test_request_context("/"):
+        return render_template("_daily_attention.html", issue=issue)
+
+
 def test_three_topics_render_one_lead_and_two_side_cards():
     html = render_brief(issue_fixture(topic_count=3))
     assert 'class="daily-topic-grid daily-topic-count-3"' in html
@@ -67,14 +76,25 @@ def test_three_topics_render_one_lead_and_two_side_cards():
     assert "daily-topic-rank-1" in html
     assert "daily-topic-rank-2" in html
     assert "daily-topic-rank-3" in html
-    assert "2 个相关来源已合并" in html
+    assert "2 个独立信源已核验" in html
     assert "2026.07.11" in html
 
 
 def test_single_source_does_not_claim_sources_were_merged():
     html = render_brief(issue_fixture(topic_count=1, source_count=1))
-    assert "相关来源已合并" not in html
-    assert "Official" in html
+    assert "独立信源已核验" not in html
+    assert "Publisher 1" in html
+
+
+def test_unverified_source_does_not_inflate_badge_and_is_marked():
+    issue = issue_fixture(topic_count=1, source_count=2)
+    issue["topics"][0]["sources"][1]["verification_status"] = "unchecked"
+    html = render_brief(issue)
+    # 仅 1 条已核验 → 徽标不得宣称多信源背书
+    assert "独立信源已核验" not in html
+    assert "Publisher 1" in html
+    # 未核验的来源在证据列表里明示
+    assert "（未核验）" in html
 
 
 def test_public_template_contains_no_management_payload():
@@ -91,6 +111,7 @@ def test_one_and_two_topic_states_do_not_render_phantom_slots():
     assert one.count('class="daily-topic ') == 1
     assert "今天仅有 1 个主题达到标准" in one
     assert "daily-attention" not in one
+    assert render_attention(issue_fixture(topic_count=1, attention=[])).strip() == ""
     two = render_brief(issue_fixture(topic_count=2, attention=[]))
     assert "daily-topic-count-2" in two
     assert two.count('class="daily-topic ') == 2
@@ -103,11 +124,25 @@ def test_unavailable_source_is_plain_text_and_attention_is_minimal():
     attention[0]["attention_status"] = "rising"
     issue = issue_fixture(topic_count=1, attention=attention)
     issue["topics"][0]["sources"][0]["verification_status"] = "unavailable"
-    html = render_brief(issue)
-    assert "讨论上升中" in html
-    assert "来源暂不可访问" in html
-    attention_html = html.split("daily-attention", 1)[1]
+    brief_html = render_brief(issue)
+    assert "来源暂不可访问" in brief_html
+    assert "daily-attention" not in brief_html
+    attention_html = render_attention(issue)
+    assert "讨论上升中" in attention_html
     assert "<details" not in attention_html
+
+
+def test_missing_angle_renders_on_lead_card_only_and_tolerates_old_snapshots():
+    issue = issue_fixture(topic_count=3)
+    for t in issue["topics"]:
+        t["missing_angle"] = f"角度{t['rank']}未被说清"
+    html = render_brief(issue)
+    assert "还没人说清的是" in html
+    assert "角度1未被说清" in html
+    assert "角度2未被说清" not in html  # 侧卡不渲染
+    # 旧快照没有该字段 → 不渲染且不报错
+    old = render_brief(issue_fixture(topic_count=3))
+    assert "还没人说清的是" not in old
 
 
 if __name__ == "__main__":

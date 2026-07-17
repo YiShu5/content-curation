@@ -17,6 +17,11 @@ import today_signal as ts
 import user_preferences as prefs
 from tool_probe import probe_command
 
+# 本文件的 freshness 用例以洛杉矶墙钟构造时间戳；时区在 today_signal 里是
+# 调用时从环境变量读取的，这里钉死默认值，避免开发者 config/.env 的
+# BLOG_TIMEZONE 渗入测试（需要其他时区的用例自带 set/restore）
+os.environ["BLOG_TIMEZONE"] = "America/Los_Angeles"
+
 
 def _candidate(video_id, *, duration=1800, title="候选", channel="Example"):
     return {

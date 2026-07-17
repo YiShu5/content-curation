@@ -298,8 +298,9 @@ def test_persistence_allowlists_fields_and_preserves_attention_status_without_mu
             now=datetime.fromisoformat("2026-07-11T09:00:00-07:00"),
         )
         assert issue["attention"][0]["attention_status"] == "watch"
-        for field in ("provider_score", "links", "suggest", "missing_angle", "video_queries"):
+        for field in ("provider_score", "links", "suggest", "video_queries"):
             assert field not in issue["topics"][0]
+        assert issue["topics"][0]["missing_angle"] == "draft-only"  # 2026-07: 从剥离名单晋升为保留字段
         assert "provider_score" not in issue["topics"][0]["sources"][0]
         assert "buzz_level" not in issue["attention"][0]
         assert repr((selected, attention)) == original
@@ -361,6 +362,7 @@ def test_text_fields_accept_hard_limit_and_reject_limit_plus_one():
         ("what_happened", "what_happened_max"),
         ("discussion_focus", "discussion_focus_item_max"),
         ("why_ranked", "why_ranked_max"),
+        ("missing_angle", "missing_angle_max"),
     )
     now = datetime.fromisoformat("2026-07-11T09:00:00-07:00")
     for field, limit_name in cases:
@@ -429,7 +431,7 @@ def test_required_text_is_trimmed_and_layout_title_warnings_are_not_hard_limits(
                 raise AssertionError(f"expected required-text validation for {field}")
 
     row = topic()
-    row["discussion_focus"] = ["一", "二", "三", "四"]
+    row["discussion_focus"] = ["一", "二", "三", "四", "五", "六"]
     with TemporaryDirectory() as tmp:
         try:
             DailyIssueStore(Path(tmp), "America/Los_Angeles").publish(

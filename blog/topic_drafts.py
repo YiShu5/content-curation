@@ -278,7 +278,7 @@ def normalize_editor_topic(raw, clusters, rank):
         "category": _clean_text(raw.get("category")),
         "title": title,
         "what_happened": what_happened,
-        "discussion_focus": _clean_list(raw.get("discussion_focus"), 3),
+        "discussion_focus": _clean_list(raw.get("discussion_focus"), 5),
         "why_ranked": why_ranked,
         "missing_angle": _clean_text(raw.get("missing_angle")),
         "video_queries": _clean_list(raw.get("video_queries"), 2),

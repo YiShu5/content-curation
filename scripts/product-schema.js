@@ -23,3 +23,14 @@ export function normalizeTopic(value) {
 export function scoreDimensions() {
   return loadProductSchema().score_dimensions.slice();
 }
+
+export function verdictThresholds() {
+  return loadProductSchema().verdict_thresholds.slice();
+}
+
+export function verdictOf(total) {
+  for (const t of verdictThresholds()) {
+    if (total >= t.min) return t.label;
+  }
+  return verdictThresholds().at(-1).label;
+}

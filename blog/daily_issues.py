@@ -34,9 +34,10 @@ DAILY_TEXT_LIMITS = {
     "lead_title_warning": 34,
     "side_title_warning": 24,
     "what_happened_max": 160,
-    "discussion_focus_max_items": 3,
+    "discussion_focus_max_items": 5,
     "discussion_focus_item_max": 32,
     "why_ranked_max": 120,
+    "missing_angle_max": 80,
 }
 
 
@@ -50,6 +51,7 @@ _TOPIC_FIELDS = (
     "what_happened",
     "discussion_focus",
     "why_ranked",
+    "missing_angle",
 )
 _SOURCE_FIELDS = (
     "source_id",
@@ -251,6 +253,16 @@ class DailyIssueStore:
                     required=True,
                 ),
             }
+            # 可选字段空值时省略键：加载校验要求清洗结果与存盘内容逐字节相等，
+            # 无条件写键会让没有该字段的历史快照被误判损坏
+            missing_angle = _clean_limited_text(
+                raw.get("missing_angle"),
+                "missing_angle",
+                DAILY_TEXT_LIMITS["missing_angle_max"],
+                required=False,
+            )
+            if missing_angle:
+                clean["missing_angle"] = missing_angle
             if is_attention:
                 clean["attention_status"] = raw.get("attention_status")
             clean["sources"] = self._validated_sources(raw.get("sources", []))

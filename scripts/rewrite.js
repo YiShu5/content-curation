@@ -9,7 +9,7 @@ import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import OpenAI from 'openai';
 import * as dotenv from 'dotenv';
-import { scoreDimensions } from './product-schema.js';
+import { scoreDimensions, verdictOf } from './product-schema.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.join(__dirname, '..');
@@ -148,6 +148,26 @@ function parseAIResponse(raw) {
     }
     throw new Error(`无法解析 AI 输出为 JSON:\n${raw.slice(0, 500)}`);
   }
+}
+
+// ── 评分归一 ──────────────────────────────────────────────────────────────
+// 与 scripts/rescore.py 的钳位语义保持一致：不信任模型算术——
+// 各维度分钳位到 [0, max]，total 代码侧重算，verdict 按阈值表重判。
+function normalizeScores(scores) {
+  if (!scores) return null;
+  const normalized = {};
+  let total = 0;
+  for (const d of scoreDimensions()) {
+    const dim = scores[d.key] || {};
+    let score = Math.trunc(Number(dim.score));
+    if (!Number.isFinite(score)) score = 0;
+    score = Math.max(0, Math.min(score, d.max));
+    normalized[d.key] = { score, reason: String(dim.reason || '').trim() };
+    total += score;
+  }
+  normalized.total = total;
+  normalized.verdict = verdictOf(total);
+  return normalized;
 }
 
 // ── 写入输出文件 ───────────────────────────────────────────────────────────
@@ -345,6 +365,8 @@ async function main() {
       throw new Error('AI 响应缺少必要字段 (chinese_title 或 deep_summary)');
     }
 
+    result.scores = normalizeScores(result.scores);
+
     console.log(`  写入输出文件...`);
     writeRewrittenMd(resolvedDir, result, metadata);
     writeMetadataMd(resolvedDir, result, metadata);
@@ -386,4 +408,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   main();
 }
 
-export { formatScores };
+export { formatScores, normalizeScores };
