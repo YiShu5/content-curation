@@ -25,7 +25,7 @@ def test_homepage_renders():
     print("✓ homepage renders")
 
 
-def test_homepage_without_published_issue_keeps_deep_library():
+def test_homepage_is_brief_only_and_links_library():
     original_dir = app.config["DAILY_ISSUES_DIR"]
     try:
         with TemporaryDirectory() as tmp:
@@ -43,9 +43,22 @@ def test_homepage_without_published_issue_keeps_deep_library():
 
     assert resp.status_code == 200
     assert "还没有发布第一期" in html
-    assert 'id="deep-library"' in html
+    # 首页只做简报：深度库不再内嵌，只留一个入口链接
+    assert 'id="deep-library"' not in html
+    assert '/library' in html
     assert "今日 AI 判断" not in html
-    print("✓ no published issue keeps deep library")
+    print("✓ homepage is brief-only with library link")
+
+
+def test_library_page_renders_grid():
+    with patch.object(app_module, "load_archive_records", return_value=[]):
+        client = app.test_client()
+        resp = client.get("/library")
+        html = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    assert 'id="deep-library"' in html
+    assert "暂无内容" in html
+    print("✓ library page renders grid")
 
 
 def test_detail_related_prefers_cover_url():
@@ -206,7 +219,8 @@ def test_missing_attention_promote_does_not_write_positive_log():
 
 if __name__ == "__main__":
     test_homepage_renders()
-    test_homepage_without_published_issue_keeps_deep_library()
+    test_homepage_is_brief_only_and_links_library()
+    test_library_page_renders_grid()
     test_detail_related_prefers_cover_url()
     test_ingest_status_passes_through_record_id()
     test_detail_quote_anchor()

@@ -425,6 +425,20 @@ def admin_daily_revise(issue_date):
 
 @app.route("/")
 def index():
+    # 首页只做一件事：当天的简报（一屏三条），深度库整体在 /library
+    store = _issue_store()
+    issue = store.latest()
+    unrecoverable = store.unrecoverable_dates()
+    daily_error = ""
+    if unrecoverable and (not issue or max(unrecoverable) >= issue["issue_date"]):
+        issue = None
+        daily_error = "最新一期暂时无法读取，请稍后再试。"
+    return render_template("index.html", library_count=len(load_archive_records()),
+                           **_issue_view(issue, is_home=True, daily_error=daily_error))
+
+
+@app.route("/library")
+def library():
     records = load_archive_records()
     # 只保留实际有内容的话题（带数量），按出现频次优先展示，方便顶部筛选栏先露出高频标签。
     raw_topic_counts = {t: sum(1 for r in records if r.get("topic") == t) for t in TOPICS}
@@ -441,16 +455,8 @@ def index():
         if v:
             _vc[v] = _vc.get(v, 0) + 1
     verdicts = [{"name": v, "count": _vc[v]} for v in _verdict_order if v in _vc]
-    store = _issue_store()
-    issue = store.latest()
-    unrecoverable = store.unrecoverable_dates()
-    daily_error = ""
-    if unrecoverable and (not issue or max(unrecoverable) >= issue["issue_date"]):
-        issue = None
-        daily_error = "最新一期暂时无法读取，请稍后再试。"
-    return render_template("index.html", records=records, topics=used_topics,
-                           topic_counts=topic_counts, verdicts=verdicts,
-                           **_issue_view(issue, is_home=True, daily_error=daily_error))
+    return render_template("library.html", records=records, topics=used_topics,
+                           topic_counts=topic_counts, verdicts=verdicts)
 
 
 @app.get("/daily")
