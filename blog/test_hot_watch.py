@@ -262,6 +262,124 @@ def test_dry_run_previews_without_marking_notified():
         assert row["status"] == "pending"
 
 
+def trend(term, heat, *, tid=None, blurb="趋势一句话。"):
+    return {
+        "id": tid or f"trend-{abs(hash(term))}",
+        "term_zh": term,
+        "term_en": term,
+        "blurb": blurb,
+        "heat": heat,
+        "rank": 1,
+        "is_new": True,
+        "prev_rank": None,
+    }
+
+
+def test_agihunt_champion_triggers_with_native_metric():
+    with TemporaryDirectory() as tmp:
+        path = seeded(tmp, [])
+        send = Recorder()
+        code = run_once(fetch=lambda h: [], fetch_agihunt=lambda: [trend("Kimi K3 正式发布并刷榜", 12.0)],
+                        send=send, now=NOW, state_path=path)
+        assert code == 0 and len(send.sent) == 1
+        assert "heat 12.0" in send.sent[0]
+        assert "AGI HUNT · agihunt.info" in send.sent[0]
+
+
+def test_agihunt_below_floor_not_stored():
+    with TemporaryDirectory() as tmp:
+        path = seeded(tmp, [])
+        send = Recorder()
+        run_once(fetch=lambda h: [], fetch_agihunt=lambda: [trend("小热点", 6.0)],
+                 send=send, now=NOW, state_path=path)
+        assert send.sent == []
+        assert load_state(path)["items"] == {}
+
+
+def test_agihunt_same_id_no_repush_and_risen_heat_raises_bar():
+    with TemporaryDirectory() as tmp:
+        path = seeded(tmp, [])
+        send = Recorder()
+        first = trend("大新闻", 12.0, tid="t-1")
+        run_once(fetch=lambda h: [], fetch_agihunt=lambda: [first], send=send, now=NOW, state_path=path)
+        assert len(send.sent) == 1
+        risen = dict(first, heat=13.5)
+        run_once(fetch=lambda h: [], fetch_agihunt=lambda: [risen], send=send, now=NOW, state_path=path)
+        assert len(send.sent) == 1  # 同 id 不重推
+        # 冠军线已被抬到 13.5，后续 12.8 的新趋势不冒充新高
+        run_once(fetch=lambda h: [], fetch_agihunt=lambda: [risen, trend("次高", 12.8, tid="t-2")],
+                 send=send, now=NOW, state_path=path)
+        assert len(send.sent) == 1
+
+
+def test_dual_tracks_merge_into_single_message():
+    with TemporaryDirectory() as tmp:
+        path = seeded(tmp, [])
+        send = Recorder()
+        run_once(fetch=lambda h: [item("AI HOT 头条", 85)],
+                 fetch_agihunt=lambda: [trend("AGI Hunt 头条", 12.0)],
+                 send=send, now=NOW, state_path=path)
+        assert len(send.sent) == 1
+        text = send.sent[0]
+        assert "AI HOT 头条" in text and "AGI Hunt 头条" in text
+        assert "热度 85" in text and "heat 12.0" in text
+
+
+def test_cross_source_duplicate_suppressed():
+    with TemporaryDirectory() as tmp:
+        path = seeded(tmp, [])
+        send = Recorder()
+        run_once(fetch=lambda h: [item("Kimi K3 正式发布", 85)], send=send, now=NOW, state_path=path)
+        assert len(send.sent) == 1
+        run_once(fetch=lambda h: [], fetch_agihunt=lambda: [trend("Kimi K3 正式发布并刷榜", 13.7)],
+                 send=send, now=NOW, state_path=path)
+        assert len(send.sent) == 1  # 同事件被相似度抑制
+        rows = load_state(path)["items"]
+        assert any(row.get("status") == "dup_suppressed" for row in rows.values())
+
+
+def test_agihunt_failure_does_not_hurt_aihot_track():
+    with TemporaryDirectory() as tmp:
+        path = seeded(tmp, [])
+        send = Recorder()
+
+        def boom():
+            raise RuntimeError("agihunt 挂了")
+
+        code = run_once(fetch=lambda h: [item("主轨新闻", 85)], fetch_agihunt=boom,
+                        send=send, now=NOW, state_path=path)
+        assert code == 0 and len(send.sent) == 1 and "主轨新闻" in send.sent[0]
+
+
+def test_both_sources_failing_returns_2_untouched():
+    with TemporaryDirectory() as tmp:
+        path = seeded(tmp, [item("已播种", 90)])
+        before = path.read_bytes()
+
+        def boom_fetch(hours):
+            raise RuntimeError("aihot 403")
+
+        def boom_agihunt():
+            raise RuntimeError("agihunt 403")
+
+        code = run_once(fetch=boom_fetch, fetch_agihunt=boom_agihunt,
+                        send=Recorder(), now=NOW, state_path=path)
+        assert code == 2
+        assert path.read_bytes() == before
+
+
+def test_seeding_initializes_agihunt_champion():
+    with TemporaryDirectory() as tmp:
+        path = Path(tmp) / "state.json"
+        send = Recorder()
+        code = run_once(fetch=lambda h: [], fetch_agihunt=lambda: [trend("存量趋势", 13.7)],
+                        send=send, now=NOW, state_path=path)
+        assert code == 0 and send.sent == []
+        state = load_state(path)
+        assert state["champion_agihunt"] == {"date": "2026-07-16", "heat": 13.7}
+        assert all(row["status"] == "seeded" for row in state["items"].values())
+
+
 if __name__ == "__main__":
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     for test in tests:
