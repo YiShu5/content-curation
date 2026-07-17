@@ -563,6 +563,44 @@ def ingest():
     return job
 
 
+@app.route("/admin/xhs/<issue_date>.zip")
+@admin_auth.admin_required
+def export_xhs(issue_date):
+    """导出小红书图组：已发布简报渲染成 3:4 竖版 PNG + 文案.txt，打包 zip。
+    需本机/服务器有 Chrome（VPS 需 apt 装 chromium）。GET，读取已发布快照，不改数据。"""
+    import io
+    import tempfile
+    import zipfile
+    try:
+        validate_issue_date(issue_date)
+    except (ValueError, DailyIssueValidationError):
+        abort(404)
+    try:
+        issue = _issue_store().get(issue_date)
+    except DailyIssueCorrupt:
+        abort(503)
+    if not issue:
+        abort(404)
+    import xhs_card
+    with tempfile.TemporaryDirectory() as tmp:
+        results = xhs_card.render_issue_cards(issue, tmp)
+        rendered = [(name, Path(tmp) / name) for name, ok, _ in results if ok]
+        if not rendered:
+            errs = "；".join(err for _, ok, err in results if not ok and err)[:300]
+            return {"status": "render_failed",
+                    "message": f"图片渲染失败（可能缺 Chrome）：{errs}"}, 503
+        caption = xhs_card.build_caption(issue)
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for name, path in rendered:
+                zf.write(path, name)
+            if caption:
+                zf.writestr("文案.txt", caption)
+    buf.seek(0)
+    return send_file(buf, mimetype="application/zip", as_attachment=True,
+                     download_name=f"xhs-{issue_date}.zip", max_age=0)
+
+
 @app.route("/ingest/status")
 @admin_auth.admin_required
 def ingest_status():

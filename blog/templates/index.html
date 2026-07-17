@@ -22,7 +22,10 @@
 {% block content %}
 {% include "_daily_brief.html" %}
 {% if issue %}
-<div class="daily-share"><button id="dailyCopyButton" type="button" aria-live="polite">复制本期 ↗</button></div>
+<div class="daily-share">
+  {% if is_admin %}<a class="daily-xhs-export" href="{{ url_for('export_xhs', issue_date=issue.issue_date) }}">导出小红书 ↧</a>{% endif %}
+  <button id="dailyCopyButton" type="button" aria-live="polite">复制本期 ↗</button>
+</div>
 {% include "_daily_attention.html" %}
 <script id="dailySharePayload" type="application/json">{{ {'text': share_text}|tojson }}</script>
 <script src="{{ url_for('static', filename='js/daily.js') }}" defer></script>
