@@ -75,6 +75,11 @@ def main():
                 raise RuntimeError("未返回有效序号")
             m.setdefault("key_quotes_all", source)
             m["key_quotes"] = picked
+            # key_quotes_source 与 key_quotes 必须等长同序（rewrite 的配对承诺），精选后同步重排
+            origin_sources = m.get("key_quotes_source_all") or m.get("key_quotes_source") or []
+            if origin_sources and len(origin_sources) == len(source):
+                m.setdefault("key_quotes_source_all", origin_sources)
+                m["key_quotes_source"] = [origin_sources[source.index(q)] for q in picked]
             mp.write_text(json.dumps(m, ensure_ascii=False, indent=2), encoding="utf-8")
             print(f"  [金句] {title[:28]}：{len(source)} → {len(picked)} 条")
             done += 1

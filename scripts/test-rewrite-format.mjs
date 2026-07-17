@@ -67,14 +67,23 @@ const grounded = groundQuotes({
 assert.deepEqual(grounded.key_quotes, ['旧媒体渠道非常受限', '品牌就是公司']);
 assert.equal(grounded.key_quotes_source.length, 2);
 
-// 模型完全没交出处 → 保留金句但不背书（强制力跟随证据）
+// 模型完全没交出处 → 按承诺整批丢弃（否则"完全不服从"待遇好于"部分服从"，激励倒挂）
 const unverified = groundQuotes({ key_quotes: ['a quote'], key_quotes_source: [] }, transcript);
-assert.equal(unverified.key_quotes.length, 1);
+assert.equal(unverified.key_quotes.length, 0);
+
+// 分段浓缩模式下模型把 "QUOTE: " 前缀抄进出处 → 剥掉前缀后仍能配对
+const prefixed = groundQuotes({
+  key_quotes: ['旧媒体渠道非常受限'],
+  key_quotes_source: ['QUOTE: Old media, you have very restricted channels.'],
+}, transcript);
+assert.equal(prefixed.key_quotes.length, 1);
+assert.ok(!prefixed.key_quotes_source[0].startsWith('QUOTE'));
 
 // token 估算：CJK 按字计，ASCII 按 1/4
 assert.ok(estimateTokens('中文十个字中文十个字') >= 10);
 assert.equal(estimateTokens('a'.repeat(400)), 100);
 
-// 超长转录分段：块数随长度增长
+// 超长转录分段：块数随长度增长；无换行的整段长文本也必须被硬切
 assert.ok(splitTranscript('line\n'.repeat(20000), 1000).length > 3);
+assert.ok(splitTranscript('x'.repeat(100000), 1000).length > 10);
 console.log('✓ quote grounding & chunking');

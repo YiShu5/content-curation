@@ -55,15 +55,18 @@ VERDICTS = [(t["min"], t["label"]) for t in _SCHEMA["verdict_thresholds"]]
 
 def _rubric_line(key):
     for d in _SCHEMA["score_dimensions"]:
-        if d["key"] == key:
-            return "｜".join(f"{b['range']} {b['label']}" for b in d.get("rubric", []))
-    return ""
+        if d["key"] == key and d.get("rubric"):
+            return "｜".join(f"{b['range']} {b['label']}" for b in d["rubric"])
+    # 配置错误必须响亮失败：空评分标准会让模型自由发挥、分数体系静默漂移
+    raise ValueError(f"product_schema.json 缺少维度 {key} 的 rubric 分段")
 
 
 def _verdict_bands():
+    # 上界由上一档 min 推导，依赖降序——显式排序而非假设 schema 顺序
+    verdicts = sorted(VERDICTS, key=lambda v: -v[0])
     parts = []
-    for i, (thr, label) in enumerate(VERDICTS):
-        upper = 100 if i == 0 else VERDICTS[i - 1][0] - 1
+    for i, (thr, label) in enumerate(verdicts):
+        upper = 100 if i == 0 else verdicts[i - 1][0] - 1
         parts.append(f"{thr}-{upper} {label}")
     return "｜".join(parts)
 

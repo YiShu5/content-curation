@@ -421,14 +421,15 @@ def _log_llm_call(record):
         pass
 
 
-def _chat_json(prompt, temperature=0.2):
+def _chat_json(prompt, temperature=0.2, caller="today_signal"):
     """调用 DeepSeek（OpenAI 兼容）做重要性精排，强制 JSON 输出。"""
     key = os.getenv("OPENAI_API_KEY", "")
     base = os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com").rstrip("/")
     model = os.getenv("OPENAI_MODEL", "deepseek-chat")
     record = {
-        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "caller": "today_signal",
+        # ts 统一 Z 后缀，与 rewrite.js 的 toISOString 格式一致，便于混合排序解析
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "caller": caller,
         "model": model,
         "temperature": temperature,
         "prompt_chars": len(prompt),
@@ -762,10 +763,11 @@ def _build_daily_draft(news, profile):
             if isinstance(cluster_payload, dict) else []
         )
         clusters = topic_drafts.build_clusters(pool, raw_clusters)
-        # event_sentence 是聚类的自证产物（合并所依据的"同一句话"），只记日志供审计聚类质量
+        # event_sentence 是聚类的自证产物（合并所依据的"同一句话"）。
+        # 注意这是 LLM 原始输出、未经 build_clusters 的越界/重复过滤，仅供审计聚类判断
         for raw in raw_clusters if isinstance(raw_clusters, list) else []:
             if isinstance(raw, dict) and raw.get("event_sentence"):
-                print(f"[signals] 簇 {raw.get('member_indices')}: {str(raw['event_sentence'])[:60]}")
+                print(f"[signals] 簇自述(未过滤) {raw.get('member_indices')}: {str(raw['event_sentence'])[:60]}")
         readable_clusters = _read_cluster_primaries(clusters, max_candidates)
     else:
         readable_clusters = []

@@ -46,12 +46,19 @@ def test_warn_verdict_carries_notes():
     assert "Kimi K3" in line and "；" in line
 
 
-def test_malformed_llm_output_degrades_to_pass():
-    # verdict 缺失/notes 垃圾 → 按 pass 处理，warn 但零 note 也不告警
+def test_malformed_llm_output_degrades_safely():
+    # verdict 缺失 → pass；warn 但零有效 note → 仍必须是警告（绝不能反向输出"通过"背书）
     line = run_review(issue_fixture(), [], [], chat=lambda p: {"nonsense": True})
     assert line.startswith("✅ 终审通过")
     line2 = run_review(issue_fixture(), [], [], chat=lambda p: {"verdict": "warn", "notes": ["  "]})
-    assert line2.startswith("✅ 终审通过")
+    assert line2.startswith("⚠️ 终审提示：") and "人工过目" in line2
+
+
+def test_string_float_scores_do_not_crash():
+    line = run_review(issue_fixture(), [{"title": "带小数分", "score": "92.5"}],
+                      [{"term_zh": "字符串heat", "heat": "8.2"}],
+                      chat=lambda p: {"verdict": "pass", "notes": []})
+    assert line.startswith("✅ 终审通过")
 
 
 def test_empty_sources_render_unavailable_markers():

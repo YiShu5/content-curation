@@ -49,7 +49,8 @@ def require_api_key():
 def chat_json(prompt, temperature=0.3, timeout=120, caller=None):
     """调用 DeepSeek（OpenAI 兼容）chat 接口，强制 JSON 输出，返回解析后的 dict。"""
     record = {
-        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        # ts 统一 Z 后缀，与 rewrite.js 的 toISOString 格式一致，便于混合排序解析
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "caller": caller or Path(sys.argv[0]).stem or "scripts",
         "model": MODEL,
         "temperature": temperature,

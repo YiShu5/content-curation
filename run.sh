@@ -103,12 +103,15 @@ case "$CMD" in
     ;;
   daily-brief)
     # 【每日定时】signals 生成 → 带闸门自动发布 → 飞书通知结果（未配机器人则静默）
-    brief_out=$( { ./run.sh signals && ./run.sh publish-daily; } 2>&1 ); brief_status=$?
+    # 注意 set -e：赋值必须挂 || 捕获，否则失败分支永远不执行、❌ 通知永远发不出
+    brief_status=0
+    brief_out=$( { ./run.sh signals && ./run.sh publish-daily; } 2>&1 ) || brief_status=$?
     echo "$brief_out"
-    brief_summary=$(echo "$brief_out" | grep -E '^\[auto-publish\]' | tail -1)
+    brief_summary=$(echo "$brief_out" | grep -E '^\[auto-publish\]' | tail -1) || true
     if [ $brief_status -eq 0 ]; then
-      # 第九个 Agent：终审官（提醒模式），失败静默、永不影响发布结果
-      review_line=$(blog/.venv/bin/python blog/issue_review.py 2>/dev/null | grep -E '^\[issue-review\]' | tail -1 | sed 's/^\[issue-review\] //') || true
+      # 第九个 Agent：终审官（提醒模式）——只附带 ✅/⚠️ 结论行；诊断走 stderr 进 cron 日志，不再丢弃
+      if [ -x "blog/.venv/bin/python" ]; then review_py="blog/.venv/bin/python"; else review_py="python"; fi
+      review_line=$("$review_py" blog/issue_review.py | grep -E '^\[issue-review\] (✅|⚠️)' | tail -1 | sed 's/^\[issue-review\] //') || true
       ./scripts/notify-feishu.sh "✅ 降噪日报 $(date '+%m-%d')
 ${brief_summary:-signals 完成}${review_line:+
 ${review_line}}" || true

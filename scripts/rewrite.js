@@ -96,6 +96,11 @@ function logLlmCall(record) {
   } catch {}
 }
 
+const nowIso = () => new Date().toISOString().slice(0, 19) + 'Z';
+
+// 一次探测出 response_format 不受支持后记住结论，分段浓缩的 N 次调用不再各自双发探测
+let jsonModeUnsupported = false;
+
 async function callAI(prompt, { caller = 'rewrite', temperature = 0.3 } = {}) {
   const client = getClient();
   const requestParams = {
@@ -105,7 +110,7 @@ async function callAI(prompt, { caller = 'rewrite', temperature = 0.3 } = {}) {
     max_tokens: 8192,
   };
   const record = {
-    ts: new Date().toISOString().slice(0, 19) + 'Z',
+    ts: nowIso(),
     caller,
     model: MODEL,
     temperature,
@@ -120,26 +125,33 @@ async function callAI(prompt, { caller = 'rewrite', temperature = 0.3 } = {}) {
     logLlmCall(record);
     return response.choices[0].message.content;
   };
-
-  // Try with json_object format first (OpenAI supports this)
-  try {
-    const response = await client.chat.completions.create({
-      ...requestParams,
-      response_format: { type: 'json_object' },
-    });
-    return finish(response);
-  } catch (err) {
-    // If response_format not supported (some providers), retry without it
-    if (err.message?.includes('response_format') || err.status === 400) {
-      console.error('  [INFO] 该模型不支持 response_format，切换为普通模式');
-      record.response_format_fallback = true;
-      const response = await client.chat.completions.create(requestParams);
-      return finish(response);
-    }
+  const fail = (err) => {
     record.ms = Date.now() - start;
     record.error = String(err.message || err).slice(0, 200);
     logLlmCall(record);
     throw err;
+  };
+
+  if (!jsonModeUnsupported) {
+    try {
+      const response = await client.chat.completions.create({
+        ...requestParams,
+        response_format: { type: 'json_object' },
+      });
+      return finish(response);
+    } catch (err) {
+      // If response_format not supported (some providers), retry without it
+      if (!(err.message?.includes('response_format') || err.status === 400)) fail(err);
+      console.error('  [INFO] 该模型不支持 response_format，切换为普通模式');
+      record.response_format_fallback = true;
+      jsonModeUnsupported = true;
+    }
+  }
+  try {
+    const response = await client.chat.completions.create(requestParams);
+    return finish(response);
+  } catch (err) {
+    fail(err);
   }
 }
 
@@ -161,16 +173,24 @@ function splitTranscript(text, chunkTokens = CHUNK_TOKENS) {
   const chunks = [];
   let buf = [];
   let bufTokens = 0;
-  for (const line of text.split('\n')) {
-    buf.push(line);
-    bufTokens += estimateTokens(line) + 1;
-    if (bufTokens >= chunkTokens) {
-      chunks.push(buf.join('\n'));
-      buf = [];
-      bufTokens = 0;
+  const flush = () => {
+    if (buf.length) { chunks.push(buf.join('\n')); buf = []; bufTokens = 0; }
+  };
+  // whisper/字幕常输出无换行的整段长文本，单行也必须能硬切，否则分段保护失效
+  const maxLineChars = chunkTokens * 3;
+  for (const rawLine of text.split('\n')) {
+    const pieces = rawLine.length <= maxLineChars
+      ? [rawLine]
+      : Array.from({ length: Math.ceil(rawLine.length / maxLineChars) },
+          (_, i) => rawLine.slice(i * maxLineChars, (i + 1) * maxLineChars));
+    for (const line of pieces) {
+      const lineTokens = estimateTokens(line) + 1;
+      if (bufTokens + lineTokens > chunkTokens) flush();
+      buf.push(line);
+      bufTokens += lineTokens;
     }
   }
-  if (buf.length) chunks.push(buf.join('\n'));
+  flush();
   return chunks;
 }
 
@@ -185,11 +205,21 @@ async function condenseTranscript(transcriptClean, metadata) {
 "quotes":["3-5 句最有金句潜质的原文句子，原文语言、逐字抄录、一字不改"]}
 
 ${chunks[i]}`;
-    const raw = await callAI(chunkPrompt, { caller: 'rewrite_chunk' });
-    const parsed = parseAIResponse(raw);
-    const quotes = (Array.isArray(parsed.quotes) ? parsed.quotes : [])
-      .map((q) => `QUOTE: ${q}`).join('\n');
-    parts.push(`【第 ${i + 1}/${chunks.length} 段纪要】\n${parsed.digest || ''}\n${quotes}`);
+    let part;
+    try {
+      const raw = await callAI(chunkPrompt, { caller: 'rewrite_chunk' });
+      const parsed = parseAIResponse(raw);
+      const digest = String(parsed.digest || '').trim();
+      if (!digest) throw new Error('digest 为空');
+      const quotes = (Array.isArray(parsed.quotes) ? parsed.quotes : [])
+        .map((q) => `QUOTE: ${q}`).join('\n');
+      part = `【第 ${i + 1}/${chunks.length} 段纪要】\n${digest}\n${quotes}`;
+    } catch (err) {
+      // 单段失败不拖垮整次改写（前面各段已付费）：该段回退为原文截断
+      console.error(`  [WARN] 第 ${i + 1} 段浓缩失败（${String(err.message || err).slice(0, 80)}），回退为原文截断`);
+      part = `【第 ${i + 1}/${chunks.length} 段（浓缩失败，以下为原文截断）】\n${chunks[i].slice(0, 2000)}`;
+    }
+    parts.push(part);
   }
   return `【注：以下为分段浓缩版转录。QUOTE 行为逐字原文，可直接用作金句出处】\n\n${parts.join('\n\n')}`;
 }
@@ -211,8 +241,11 @@ function groundQuotes(result, transcript) {
   const sources = Array.isArray(result.key_quotes_source) ? result.key_quotes_source : [];
   if (!quotes.length) return result;
   if (!sources.length) {
-    console.error('  [WARN] 模型未输出 key_quotes_source，金句本次未经 grounding 校验');
-    logLlmCall({ ts: new Date().toISOString().slice(0, 19) + 'Z', caller: 'rewrite', event: 'quotes_unverified', quotes: quotes.length });
+    // 与 prompt 的承诺一致（无出处即丢弃）：若放行会造成"完全不服从比部分服从待遇更好"的激励倒挂
+    console.error(`  [WARN] 模型未输出 key_quotes_source，按承诺丢弃全部 ${quotes.length} 条金句（重跑 rewrite 可重试）`);
+    logLlmCall({ ts: nowIso(), caller: 'rewrite', event: 'quotes_unverified_dropped', dropped: quotes.length });
+    result.key_quotes = [];
+    result.key_quotes_source = [];
     return result;
   }
   const haystack = normalizeForMatch(transcript);
@@ -220,10 +253,12 @@ function groundQuotes(result, transcript) {
   const keptSources = [];
   let dropped = 0;
   quotes.forEach((quote, i) => {
-    const needle = normalizeForMatch(sources[i]);
-    if (needle && needle.length >= 10 && haystack.includes(needle)) {
+    // 分段浓缩模式下模型可能连 "QUOTE: " 前缀一起抄进出处，剥掉再比对
+    const source = String(sources[i] ?? '').replace(/^\s*quote[:：]\s*/i, '');
+    const needle = normalizeForMatch(source);
+    if (needle && needle.length >= 6 && haystack.includes(needle)) {
       keptQuotes.push(quote);
-      keptSources.push(sources[i]);
+      keptSources.push(source);
     } else {
       dropped += 1;
       console.error(`  [WARN] 金句 grounding 失败，丢弃：${String(quote).slice(0, 40)}…`);
@@ -232,7 +267,7 @@ function groundQuotes(result, transcript) {
   result.key_quotes = keptQuotes;
   result.key_quotes_source = keptSources;
   if (dropped) {
-    logLlmCall({ ts: new Date().toISOString().slice(0, 19) + 'Z', caller: 'rewrite', event: 'quote_grounding_dropped', dropped, kept: keptQuotes.length });
+    logLlmCall({ ts: nowIso(), caller: 'rewrite', event: 'quote_grounding_dropped', dropped, kept: keptQuotes.length });
   }
   return result;
 }
