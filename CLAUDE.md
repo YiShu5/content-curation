@@ -7,6 +7,7 @@
 - 博客用 `blog/.venv` 跑，端口 **5055**（5000 会撞 macOS AirPlay Receiver）；默认只监听 127.0.0.1 且 debug 关（Werkzeug 调试器=任意代码执行），开发要热重载/局域网用 `FLASK_DEBUG=true` / `BLOG_HOST=0.0.0.0` 显式打开。
 - 两个 Python 环境：根 `.venv`（fetch.py，含 yt-dlp）+ `blog/.venv`（flask/numpy/markdown/dotenv）。
 - 统一入口 `run.sh <cmd>`：auto / batch / url / rewrite / sync / sync-doc / embed / signals / publish-daily / daily-brief / hot-watch / enrich-guests / select-quotes / refresh / daily / all。重打分是 `scripts/rescore.py`（不是 run.sh 子命令）。
+- ⚠️ run.sh 有 `set -euo pipefail`：分支里"赋值=$(命令)"失败会直接终止整个脚本——要读退出码必须写成 `v=$(cmd) || st=$?`，否则失败分支永远不执行（2026-07-17 daily-brief 的 ❌ 通知因此从未发出过）。
 
 ## 生产与自动化（2026-07，运维细节见 docs/OPERATIONS.md）
 - 线上 https://www.yishucc.top/（VPS）；服务器 `.env` 必须有 `BLOG_TIMEZONE=Asia/Shanghai`，否则"当日"判断差 15 小时。

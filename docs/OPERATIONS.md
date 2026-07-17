@@ -42,6 +42,7 @@
 | `HOT_WATCH_THRESHOLD` | AI HOT 轨入围下限（默认 78） | 实测 AI HOT 分数上限约 83，勿设 85+ |
 | `HOT_WATCH_AGIHUNT` / `HOT_WATCH_AGIHUNT_FLOOR` | AGI Hunt 轨开关（默认开）/ heat 下限（默认 10） | heat 无量纲承诺，按触发密度微调 |
 | `HOT_WATCH_QUIET` | 安静时段如 `23-8`，空=全天实时 | 夜间积攒、早晨合并补报 |
+| `REWRITE_MAX_TOKENS` | 改写超长保护阈值（默认 32000） | 转录估算超阈值自动分段浓缩（map-reduce）再改写 |
 | `DEPLOY_SSH_HOST` / `DEPLOY_REMOTE_DIR` | deploy-content.sh 的目标 | 本地机器配置 |
 
 ## 每日简报自动发布（run.sh daily-brief）
@@ -54,6 +55,20 @@
 `/admin/login` 登录做修订（修订历史公开可查）。幂等：当日已发布则跳过，cron 重跑安全。
 
 飞书通知语义：✅ 也每天发——**沉默即异常**（哪天早上 8:40 没消息，说明 cron 本身死了）。
+
+发布成功后附带**终审官**结论（`blog/issue_review.py`，提醒模式）：对照 AI HOT 与
+AGI Hunt 两源当日热榜，检查本期有无遗漏的大事或硬伤，结论行（✅/⚠️）拼进飞书通知。
+永不拦截发布；两源热榜全部不可用时弃权不出具结论；自身故障静默降级（诊断进 cron 日志）。
+
+## 观测与质量护栏
+
+- **LLM 调用日志**：全部 9 个 AI 角色（改写/重评/嘉宾/金句/聚类/主编/延伸阅读/问答/终审）
+  的每次调用都追加一行到 `blog/data/llm_calls.jsonl`（caller/model/耗时/tokens/错误），
+  排查成本或失败率从这里入手；grounding 丢弃、解析降级等事件也记在同一文件（含 `event` 字段的行）。
+- **金句 grounding**：改写要求模型同时交出 `key_quotes_source`（原文语言出处句），
+  程序核对出处句逐字存在于转录，对不上的金句整条丢弃——日志里 `quote_grounding_dropped`
+  频繁出现时说明模型在虚构，值得关注。
+- 精选金句（select-quotes）会同步重排 `key_quotes_source` 保持配对。
 
 ## 盘中监控（run.sh hot-watch）——双信源独立冠军
 
