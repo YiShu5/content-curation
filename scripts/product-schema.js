@@ -28,6 +28,23 @@ export function verdictThresholds() {
   return loadProductSchema().verdict_thresholds.slice();
 }
 
+// 评分分段表与评级表的唯一来源是 product_schema.json；
+// rewrite-prompt.md 用 {{rubric_<key>}} / {{verdict_table}} 占位，此处渲染成 markdown
+export function rubricTable(key) {
+  const dim = scoreDimensions().find((d) => d.key === key);
+  if (!dim || !Array.isArray(dim.rubric)) return '';
+  const rows = dim.rubric.map((band) => `| ${band.range} | ${band.label} |`);
+  return ['| 分段 | 标准 |', '|------|------|', ...rows].join('\n');
+}
+
+export function verdictTable() {
+  const rows = verdictThresholds().map((t, i, all) => {
+    const upper = i === 0 ? 100 : all[i - 1].min - 1;
+    return `| ${t.min}-${upper} | ${t.label} |`;
+  });
+  return ['| 总分 | verdict |', '|------|---------|', ...rows].join('\n');
+}
+
 export function verdictOf(total) {
   for (const t of verdictThresholds()) {
     if (total >= t.min) return t.label;
