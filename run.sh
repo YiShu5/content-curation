@@ -107,8 +107,11 @@ case "$CMD" in
     echo "$brief_out"
     brief_summary=$(echo "$brief_out" | grep -E '^\[auto-publish\]' | tail -1)
     if [ $brief_status -eq 0 ]; then
+      # 第九个 Agent：终审官（提醒模式），失败静默、永不影响发布结果
+      review_line=$(blog/.venv/bin/python blog/issue_review.py 2>/dev/null | grep -E '^\[issue-review\]' | tail -1 | sed 's/^\[issue-review\] //') || true
       ./scripts/notify-feishu.sh "✅ 降噪日报 $(date '+%m-%d')
-${brief_summary:-signals 完成}" || true
+${brief_summary:-signals 完成}${review_line:+
+${review_line}}" || true
     else
       ./scripts/notify-feishu.sh "❌ 降噪日报 $(date '+%m-%d') 失败
 ${brief_summary:-$(echo "$brief_out" | tail -2)}" || true
