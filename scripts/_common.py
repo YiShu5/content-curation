@@ -6,12 +6,26 @@
 import json
 import os
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
 
 PROJECT_ROOT = Path(__file__).parent.parent
 ARCHIVE_ROOT = PROJECT_ROOT / "archive"
+LLM_LOG = PROJECT_ROOT / "blog" / "data" / "llm_calls.jsonl"
+
+
+def log_llm_call(record):
+    """LLM 调用观测日志（与 blog/today_signal.py、scripts/rewrite.js 同一 jsonl）。
+    日志写入失败绝不影响主流程。"""
+    try:
+        LLM_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with LLM_LOG.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
 
 # 加载 config/.env
 try:
@@ -32,21 +46,44 @@ def require_api_key():
         sys.exit(1)
 
 
-def chat_json(prompt, temperature=0.3, timeout=120):
+def chat_json(prompt, temperature=0.3, timeout=120, caller=None):
     """调用 DeepSeek（OpenAI 兼容）chat 接口，强制 JSON 输出，返回解析后的 dict。"""
-    resp = requests.post(
-        f"{BASE_URL}/chat/completions",
-        headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
-        json={
-            "model": MODEL,
-            "messages": [{"role": "user", "content": prompt}],
-            "response_format": {"type": "json_object"},
-            "temperature": temperature,
-        },
-        timeout=timeout,
-    )
-    resp.raise_for_status()
-    return json.loads(resp.json()["choices"][0]["message"]["content"])
+    record = {
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "caller": caller or Path(sys.argv[0]).stem or "scripts",
+        "model": MODEL,
+        "temperature": temperature,
+        "prompt_chars": len(prompt),
+    }
+    start = time.time()
+    try:
+        resp = requests.post(
+            f"{BASE_URL}/chat/completions",
+            headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
+            json={
+                "model": MODEL,
+                "messages": [{"role": "user", "content": prompt}],
+                "response_format": {"type": "json_object"},
+                "temperature": temperature,
+            },
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        content = payload["choices"][0]["message"]["content"]
+        usage = payload.get("usage") or {}
+        record.update(
+            ms=int((time.time() - start) * 1000),
+            completion_chars=len(content),
+            prompt_tokens=usage.get("prompt_tokens"),
+            completion_tokens=usage.get("completion_tokens"),
+        )
+        return json.loads(content)
+    except Exception as exc:
+        record.update(ms=int((time.time() - start) * 1000), error=str(exc)[:200])
+        raise
+    finally:
+        log_llm_call(record)
 
 
 def iter_metadata(dirs=None):

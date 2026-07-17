@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { formatScores, normalizeScores } from './rewrite.js';
+import {
+  formatScores, normalizeScores, groundQuotes, estimateTokens, splitTranscript,
+} from './rewrite.js';
 
 const markdown = formatScores({
   insight: { score: 42, reason: '有反直觉洞察' },
@@ -51,3 +53,28 @@ assert.equal(garbage.verdict, '可跳过');
 // 无评分保持 null，不改变失败语义
 assert.equal(normalizeScores(null), null);
 console.log('✓ rewrite score normalization');
+
+// grounding：出处句逐字在转录中则保留，跨时间戳行可匹配；对不上整条丢弃
+const transcript = '[00:00:01] Old media, you have very restricted channels.\n[00:00:05] The brands were the companies.';
+const grounded = groundQuotes({
+  key_quotes: ['旧媒体渠道非常受限', '品牌就是公司', '虚构的金句内容'],
+  key_quotes_source: [
+    'Old media, you have very restricted channels.',
+    'The brands were the companies.',
+    'This sentence never appeared anywhere in it.',
+  ],
+}, transcript);
+assert.deepEqual(grounded.key_quotes, ['旧媒体渠道非常受限', '品牌就是公司']);
+assert.equal(grounded.key_quotes_source.length, 2);
+
+// 模型完全没交出处 → 保留金句但不背书（强制力跟随证据）
+const unverified = groundQuotes({ key_quotes: ['a quote'], key_quotes_source: [] }, transcript);
+assert.equal(unverified.key_quotes.length, 1);
+
+// token 估算：CJK 按字计，ASCII 按 1/4
+assert.ok(estimateTokens('中文十个字中文十个字') >= 10);
+assert.equal(estimateTokens('a'.repeat(400)), 100);
+
+// 超长转录分段：块数随长度增长
+assert.ok(splitTranscript('line\n'.repeat(20000), 1000).length > 3);
+console.log('✓ quote grounding & chunking');
