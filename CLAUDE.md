@@ -15,6 +15,10 @@
 - ⚠️ hot-watch 的 AGI Hunt 轨只用免鉴权 `agihunt.info/api/trends`，**绝不接其 /agent/v1 skill 体系**（远程指令通道 + 条款禁轮询）；heat 与 AI HOT score 两套量纲**绝不换算混轨**。
 - 每日简报快照加载校验要求清洗结果与存盘**逐字节相等**——给 topic 加可选字段必须"空值省略键"，否则历史快照全部判损坏（2026-07-14 踩过）。
 
+## 前端 CSS（2026-07 已做减法）
+- 加载顺序 `style.css → daily.css → theme-tokens.css`（最后加载，`!important` 统一纸墨编辑部视觉）。改视觉先看 theme-tokens 的令牌（纸底/墨字/陶土单强调/唯一蓝/3档圆角）。
+- ⚠️ **别再往 style.css 叠新 `:root` 或重复选择器块**（历史上叠了 5 层考古、171 个色值，已清到单一 :root）——要改令牌就改 theme-tokens，否则考古层重新长回来。令牌下沉进 style.css 消除 !important 是未排期的后续（见记忆 open-items）。
+
 ## 密钥与产物（勿提交）
 - `config/.env` 存所有密钥（飞书/DeepSeek/智谱/BibiGPT），已 gitignore，**绝不入库**。
 - `archive/`、`blog/data/`、`.venv/`、`blog/.venv/`、`.claude/` 均已忽略（生成物/本地）。
