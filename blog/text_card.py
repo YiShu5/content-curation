@@ -8,11 +8,13 @@
 （文字卡无需语义定位），保持 Flask 请求路径轻量。
 """
 import html
+import os
 import re
 import subprocess
 from pathlib import Path
 
-CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+# 默认 macOS 系统 Chrome；Linux/VPS 用环境变量覆盖，如 CHROME=/usr/bin/chromium
+CHROME = os.getenv("CHROME") or "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 CARD_W, CARD_H = 1280, 720
 CHROME_TIMEOUT = 30  # 渲染在请求内同步执行，必须有超时
 

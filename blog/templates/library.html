@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+
+{% block title %}降噪｜深度内容库{% endblock %}
+{% block body_class %}daily-page{% endblock %}
+{% block hero %}{% endblock %}
+
+{% block content %}
+{% set vcolors = {'必读':'#EF4444','强烈推荐':'#F59E0B','推荐':'#10B981','一般':'#9CA3AF','可跳过':'#CBD5E1'} %}
+
+<div class="home-layout">
+    <div class="home-main">
+        <section id="deep-library" aria-labelledby="deepLibraryTitle">
+        <header class="deep-library-heading">
+            <p>值得花时间的长内容，AI 深度解读</p>
+            <h2 id="deepLibraryTitle">深度内容库</h2>
+        </header>
+
+        <div class="filter-scrim" id="filterScrim" hidden></div>
+        <button class="filter-fab" id="filterFab" type="button" aria-controls="filterShell" aria-expanded="false">筛选</button>
+
+        <section class="home-filter" id="filterShell" aria-label="内容筛选">
+            <div class="filter-sheet-head">
+                <strong>筛选内容</strong>
+                <button type="button" id="filterClose" aria-label="关闭筛选">关闭</button>
+            </div>
+            <div class="filter-bar">
+                {% if topics %}
+                <div class="filter-group filter-topics" aria-label="话题筛选">
+                    <span class="filter-label">话题</span>
+                    <div class="filter-chip-row">
+                        <button class="filter-chip active" type="button" data-filter-topic="">全部 <span>{{ records|length }}</span></button>
+                        {% for t in topics[:5] %}
+                        <button class="filter-chip" type="button" data-filter-topic="{{ t }}">{{ t }} <span>{{ topic_counts[t] }}</span></button>
+                        {% endfor %}
+                        {% if topics|length > 5 %}
+                        <details class="filter-more">
+                            <summary>更多</summary>
+                            <div class="filter-more-menu">
+                                {% for t in topics[5:] %}
+                                <button class="filter-chip" type="button" data-filter-topic="{{ t }}">{{ t }} <span>{{ topic_counts[t] }}</span></button>
+                                {% endfor %}
+                            </div>
+                        </details>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if verdicts %}
+                <div class="filter-group filter-verdicts" aria-label="质量评级筛选">
+                    <span class="filter-label">质量</span>
+                    <div class="filter-chip-row">
+                        <button class="filter-chip active" type="button" data-filter-verdict="">全部 <span>{{ records|length }}</span></button>
+                        {% for v in verdicts %}
+                        <button class="filter-chip filter-chip-verdict" type="button" data-filter-verdict="{{ v.name }}">
+                            <i style="background:{{ vcolors.get(v.name, '#9CA3AF') }}"></i>{{ v.name }} <span>{{ v.count }}</span>
+                        </button>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                <button class="filter-clear" id="filterClear" type="button">清除所有筛选</button>
+            </div>
+        </section>
+
+        <section class="card-grid" id="card-grid">
+            {% if not records %}
+            <div class="empty-state">
+                <p>暂无内容，请先通过工作流抓取并同步到飞书。</p>
+            </div>
+            {% endif %}
+            {% for r in records %}
+            {% include "_card.html" %}
+            {% endfor %}
+            <div class="empty-state filter-empty" id="filterEmpty" hidden>
+                <p>这个筛选下暂时没有内容。可以清除筛选，或者换一个话题。</p>
+            </div>
+        </section>
+        </section>
+    </div>
+</div>
+
+<!-- 悬浮搜索（哆啦A梦四维口袋） -->
+<div class="pocket-search" id="pocket">
+    <button class="pocket-btn" id="pocketBtn" aria-label="搜索 (⌘K)" title="用一句话找内容 (⌘K)">
+        <svg viewBox="0 0 56 56" width="30" height="30" aria-hidden="true">
+            <!-- 四维口袋：白底气泡 + 蓝色袋口 + 红色绳结 -->
+            <circle cx="28" cy="28" r="22" fill="#fff"/>
+            <path d="M9 27 a19 19 0 0 0 38 0 z" fill="#EAF6FC"/>
+            <path d="M9 27 Q28 39 47 27" fill="none" stroke="#2BA7DF" stroke-width="3.4" stroke-linecap="round"/>
+            <circle cx="28" cy="17.5" r="3.4" fill="#E23B3B"/>
+            <path d="M24.8 17.5 L18 13.5 M31.2 17.5 L38 13.5" stroke="#E23B3B" stroke-width="2.4" stroke-linecap="round"/>
+        </svg>
+    </button>
+    <form class="pocket-panel" action="/search" method="get" role="search">
+        <input type="search" name="q" id="pocketInput" placeholder="用一句话找内容" autocomplete="off">
+        <kbd class="pocket-kbd">⌘K</kbd>
+        <button type="submit" class="pocket-go" aria-label="搜索">找</button>
+    </form>
+</div>
+
+<button class="back-top" id="backTop" type="button" aria-label="返回顶部">
+    <span>↑</span>
+    返回顶部
+</button>
+
+<script>
+// 联合筛选：话题 AND 质量评级
+(function () {
+    const topicBtns = document.querySelectorAll('.filter-chip[data-filter-topic]');
+    const verdictBtns = document.querySelectorAll('.filter-chip[data-filter-verdict]');
+    const cards = document.querySelectorAll('#card-grid .card');
+    const empty = document.getElementById('filterEmpty');
+    const clear = document.getElementById('filterClear');
+    const shell = document.getElementById('filterShell');
+    const fab = document.getElementById('filterFab');
+    const closeBtn = document.getElementById('filterClose');
+    const scrim = document.getElementById('filterScrim');
+    let curTopic = '', curVerdict = '';
+    function syncActive(btns, key, value) {
+        btns.forEach(x => x.classList.toggle('active', (x.dataset[key] || '') === value));
+    }
+    function apply() {
+        let visible = 0;
+        cards.forEach(c => {
+            const okT = !curTopic || c.dataset.topic === curTopic;
+            const okV = !curVerdict || c.dataset.verdict === curVerdict;
+            const ok = okT && okV;
+            c.hidden = !ok;
+            if (ok) visible += 1;
+        });
+        if (empty) empty.hidden = visible !== 0;
+    }
+    topicBtns.forEach(b => b.addEventListener('click', () => {
+        curTopic = b.dataset.filterTopic || '';
+        syncActive(topicBtns, 'filterTopic', curTopic);
+        apply();
+    }));
+    verdictBtns.forEach(b => b.addEventListener('click', () => {
+        curVerdict = b.dataset.filterVerdict || '';
+        syncActive(verdictBtns, 'filterVerdict', curVerdict);
+        apply();
+    }));
+    if (clear) clear.addEventListener('click', () => {
+        curTopic = '';
+        curVerdict = '';
+        syncActive(topicBtns, 'filterTopic', '');
+        syncActive(verdictBtns, 'filterVerdict', '');
+        document.querySelectorAll('.filter-more[open]').forEach(d => d.removeAttribute('open'));
+        apply();
+    });
+    function openSheet() {
+        if (!shell) return;
+        shell.classList.add('open');
+        if (scrim) { scrim.hidden = false; requestAnimationFrame(() => scrim.classList.add('open')); }
+        if (fab) fab.setAttribute('aria-expanded', 'true');
+    }
+    function closeSheet() {
+        if (!shell) return;
+        shell.classList.remove('open');
+        if (scrim) {
+            scrim.classList.remove('open');
+            setTimeout(() => { if (!scrim.classList.contains('open')) scrim.hidden = true; }, 180);
+        }
+        if (fab) fab.setAttribute('aria-expanded', 'false');
+    }
+    if (fab) fab.addEventListener('click', openSheet);
+    if (closeBtn) closeBtn.addEventListener('click', closeSheet);
+    if (scrim) scrim.addEventListener('click', closeSheet);
+})();
+
+// 四维口袋搜索：点击展开 / ⌘K 唤起 / Esc 收起
+(function () {
+    const pocket = document.getElementById('pocket');
+    const btn = document.getElementById('pocketBtn');
+    const input = document.getElementById('pocketInput');
+    function open() { pocket.classList.add('open'); setTimeout(() => input.focus(), 60); }
+    function close() { pocket.classList.remove('open'); input.blur(); }
+    btn.addEventListener('click', () => pocket.classList.contains('open') ? close() : open());
+    document.addEventListener('keydown', e => {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); open(); }
+        else if (e.key === 'Escape' && pocket.classList.contains('open')) close();
+    });
+})();
+
+// 极轻点击埋点：只记录明确的自主行为，不把“没点”当负反馈
+(function () {
+    function track(kind, label, href, el) {
+        try {
+            const host = el && el.closest ? el.closest('[data-signal-slot]') : null;
+            const payload = {
+                kind: kind,
+                label: label,
+                href: href || '',
+                slot: (el && el.dataset.trackSlot) || (host && host.dataset.signalSlot) || '',
+                source: (el && el.dataset.trackSource) || (host && host.dataset.signalSource) || '',
+                item_id: (el && el.dataset.trackItemId) || (host && host.dataset.signalItemId) || ''
+            };
+            navigator.sendBeacon('/track', new Blob(
+                [JSON.stringify(payload)],
+                { type: 'application/json' }));
+        } catch (e) {}
+    }
+    document.addEventListener('click', function (e) {
+        var tracked = e.target.closest && e.target.closest('[data-track-kind]');
+        if (tracked) {
+            track(tracked.dataset.trackKind, tracked.textContent.trim().slice(0, 100), tracked.href || '', tracked);
+            return;
+        }
+        if (e.target.closest && e.target.closest('.card-expand-btn')) return;
+        var card = e.target.closest && e.target.closest('#card-grid .card[data-href]');
+        if (card) {
+            track('card', (card.dataset.cardTitle || card.textContent).trim().slice(0, 80), card.dataset.href || '', card);
+            return;
+        }
+        var a = e.target.closest && e.target.closest('a');
+        if (!a) return;
+        if (a.closest('#card-grid')) track('card', a.textContent.trim().slice(0, 80), a.href, a);
+    }, true);
+})();
+
+// 移动端返回顶部
+(function () {
+    const btn = document.getElementById('backTop');
+    if (!btn) return;
+    function toggle() {
+        btn.classList.toggle('show', window.scrollY > 520);
+    }
+    btn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+    window.addEventListener('scroll', toggle, { passive: true });
+    toggle();
+})();
+</script>
+{% endblock %}

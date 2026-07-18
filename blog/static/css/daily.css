@@ -66,7 +66,12 @@ body.daily-page .container { max-width: 1180px; }
 .daily-attention-item > span { color: #9a5038; font-size: 10px; font-weight: 850; }
 .daily-attention-item h3 { margin: 5px 0; font: 800 15px/1.35 var(--font-serif); }
 .daily-attention-item p { margin: 0; color: #66625d; font-size: 12px; line-height: 1.6; }
-.daily-share { display: flex; justify-content: flex-end; max-width: 1180px; margin: -10px auto 30px; }
+.library-entry { max-width: 1180px; margin: 26px auto 44px; text-align: center; }
+.library-entry a { display: inline-block; padding: 10px 20px; border: 1px solid #d8d2ca; border-radius: 999px; color: #55534f; background: rgba(255,255,255,.5); font-size: 13px; font-weight: 750; text-decoration: none; }
+.library-entry a:hover, .library-entry a:focus-visible { color: #181a1d; border-color: #377fac; }
+.daily-share { display: flex; justify-content: flex-end; gap: 10px; max-width: 1180px; margin: -10px auto 30px; }
+.daily-xhs-export { display: inline-flex; align-items: center; border: 1px solid #d8d2ca; border-radius: 999px; padding: 9px 15px; color: #55534f; font-size: 12px; font-weight: 800; text-decoration: none; }
+.daily-xhs-export:hover { color: #fff; background: #b85f42; border-color: #b85f42; }
 .daily-share button { border: 1px solid #1e2226; border-radius: 999px; padding: 9px 15px; color: #fff; background: #1e2226; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
 .daily-share button:hover { background: #377fac; border-color: #377fac; }
 .daily-share button:focus-visible { outline: 3px solid rgba(46,159,230,.38); outline-offset: 3px; }

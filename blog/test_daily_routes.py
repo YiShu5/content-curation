@@ -168,11 +168,13 @@ def test_archive_is_descending_and_unknown_date_is_404():
     assert absent.status_code == 404
 
 
-def test_no_published_issue_keeps_deep_library_available():
+def test_no_published_issue_keeps_library_entry_available():
+    # 2026-07 起首页只做简报，深度库移至 /library——未发布时入口链接仍在
     with issue_client() as (client, _store, _):
         html = client.get("/").get_data(as_text=True)
     assert "还没有发布第一期" in html
-    assert 'id="deep-library"' in html
+    assert 'id="deep-library"' not in html
+    assert "/library" in html
 
 
 def test_old_latest_is_labeled_and_published_snapshot_does_not_drift():
@@ -217,7 +219,7 @@ def test_only_corrupt_first_issue_is_not_misreported_as_never_published():
         html = client.get("/").get_data(as_text=True)
     assert "最新一期暂时无法读取" in html
     assert "还没有发布第一期" not in html
-    assert 'id="deep-library"' in html
+    assert "/library" in html  # 简报读不出时深度库入口仍可达
 
 
 if __name__ == "__main__":
