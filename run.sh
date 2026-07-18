@@ -129,6 +129,14 @@ ${brief_summary:-$(echo "$brief_out" | tail -2)}" || true
       python blog/hot_watch.py "$@"
     fi
     ;;
+  materials)
+    # 【每日定时】AI HOT + AGI Hunt 各Top10 原始榜单推飞书卡片，供人工判断（零 LLM）
+    if [ -x "blog/.venv/bin/python" ]; then
+      blog/.venv/bin/python blog/daily_materials.py "$@"
+    else
+      python blog/daily_materials.py "$@"
+    fi
+    ;;
   enrich-guests)
     # 为已归档内容生成嘉宾介绍（头衔/背景/本期角色）
     if [ -x ".venv/bin/python" ]; then
