@@ -1,0 +1,136 @@
+/* ============================================================
+   主题令牌层（方案 A 第一步）——统一视觉语言的覆盖层，最后加载、以此为准。
+   设计语言：纸墨编辑部。纸底 / 墨字 / 陶土单强调 / 唯一蓝 / 3 档圆角。
+   现状：作为覆盖层压在 style.css / daily.css 上，已统一三页视觉。
+   待办（Phase A 第二步，见记忆 open-items）：把这里的令牌下沉为 style.css 的
+   唯一 :root、删除其 5 层考古覆盖（4400→约2200行）、接入 heti 中文排版，
+   届时本文件的 !important 覆盖可随之收敛。当前用 !important 是为压过旧层，属过渡手段。
+   ============================================================ */
+:root {
+  --p-paper: #f7f3ed;
+  --p-card: #fffdfa;
+  --p-ink: #181a1d;
+  --p-ink-2: #55534f;
+  --p-ink-3: #7a766f;
+  --p-line: #ddd6cd;
+  --p-accent: #b85f42;      /* 陶土：全站唯一强调色 */
+  --p-blue: #377fac;        /* 全站唯一蓝（链接/信息） */
+  --p-r-s: 4px;
+  --p-r-m: 10px;
+  --p-r-l: 16px;
+}
+
+/* ── 全站基底统一 ─────────────────────────────────────────── */
+body, body.daily-page { background: var(--p-paper); color: var(--p-ink); }
+
+/* 字重与实际加载档位对齐（600/700/900），消灭渲染不出的 750/850 */
+.daily-masthead h1 { font-weight: 900; }
+.daily-topic h2, .daily-attention h3, .card-title,
+.deep-library-heading h2, .daily-archive > header h1 { font-weight: 700; }
+.daily-edition { color: var(--p-blue); }
+
+/* ── 内容库卡片：SaaS 风 → 纸墨编辑部 ─────────────────────── */
+.card {
+  background: var(--p-card) !important;
+  border: 1px solid var(--p-line) !important;
+  border-radius: var(--p-r-l) !important;
+  box-shadow: 0 4px 14px rgba(42, 37, 31, 0.05) !important;
+}
+.card:hover { box-shadow: 0 8px 22px rgba(42, 37, 31, 0.09) !important; }
+.card-title {
+  font-family: var(--font-serif, "Noto Serif SC", serif) !important;
+  color: var(--p-ink) !important;
+}
+.card-cover img { filter: saturate(0.92); }
+.card-cover-badges .badge-platform,
+.card-cover-badges .badge-creator {
+  background: rgba(24, 26, 29, 0.78) !important;
+  color: #fff !important;
+  border-radius: var(--p-r-s) !important;
+}
+.card-score { background: rgba(24, 26, 29, 0.78) !important; border-radius: var(--p-r-s) !important; }
+
+/* 评级徽章：五色实底 → 描边静默 + 小色点保语义 */
+.tag {
+  border-radius: var(--p-r-s) !important;
+  background: transparent !important;
+  border: 1px solid var(--p-line) !important;
+  color: var(--p-ink-2) !important;
+}
+.tag-verdict { display: inline-flex; align-items: center; gap: 5px; }
+.tag-verdict::before {
+  content: "";
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--verdict-color, var(--p-ink-3));
+  opacity: 0.8;
+}
+
+/* 评分条：蓝/绿/紫三色 → 单一陶土；总分衬线化 */
+.card-score-bars .score-mini i { background: rgba(24, 26, 29, 0.08) !important; border-radius: 999px; }
+.card-score-bars .score-mini i b,
+.card-score-bars .score-mini.score-insight i b,
+.card-score-bars .score-mini.score-source i b,
+.card-score-bars .score-mini.score-story i b {
+  background: var(--p-accent) !important;
+  opacity: 0.85;
+}
+.card-score-bars .score-mini em { color: var(--p-ink-2) !important; }
+.card-score-total {
+  color: var(--p-accent) !important;
+  font-family: var(--font-serif, "Noto Serif SC", serif) !important;
+  font-weight: 900 !important;
+}
+
+/* 卡内面板圆角归中档 */
+.card-insight { border-radius: var(--p-r-m) !important; background: rgba(184, 95, 66, 0.05) !important; border-color: rgba(184, 95, 66, 0.25) !important; }
+
+/* ── 筛选区：与纸底同语言 ──────────────────────────────────── */
+.home-filter { background: var(--p-card) !important; border: 1px solid var(--p-line) !important; border-radius: var(--p-r-l) !important; box-shadow: none !important; }
+.filter-chip { border: 1px solid var(--p-line) !important; background: transparent !important; color: var(--p-ink-2) !important; }
+.filter-chip.active { background: var(--p-ink) !important; color: #fff !important; border-color: var(--p-ink) !important; }
+.filter-chip-verdict i { opacity: 0.8; }
+
+/* ── 详情页：暗紫海报 → 墨色报刊 ──────────────────────────── */
+.d-hero::before { background: var(--p-ink) !important; }
+.d-hero-img { filter: brightness(0.92) saturate(0.9) !important; }
+.d-hero-overlay {
+  background: linear-gradient(to top,
+    rgba(24, 26, 29, 0.88) 0%,
+    rgba(24, 26, 29, 0.32) 55%,
+    rgba(24, 26, 29, 0.02) 100%) !important;
+}
+.d-badge {
+  background: rgba(247, 243, 237, 0.16) !important;
+  border: 1px solid rgba(247, 243, 237, 0.35) !important;
+  color: #f7f3ed !important;
+  border-radius: var(--p-r-s) !important;
+}
+.d-hero-link { color: #f7f3ed !important; }
+
+/* 评分卡与正文面板统一纸墨 */
+.d-verdict { background: var(--p-card) !important; border: 1px solid var(--p-line) !important; border-radius: var(--p-r-l) !important; }
+.d-verdict-badge {
+  background: transparent !important;
+  border: 1.5px solid var(--p-accent) !important;
+  color: var(--p-accent) !important;
+  border-radius: var(--p-r-s) !important;
+  box-shadow: none !important;
+}
+.d-verdict-score { color: var(--p-ink) !important; font-family: var(--font-serif, "Noto Serif SC", serif) !important; }
+/* 三维圆点的蓝/绿/紫内联色 → 单一陶土（正式版直接改模板内联值） */
+.d-verdict-dims i { background: var(--p-accent) !important; opacity: 0.8; }
+
+/* 详情页正文预读性（正式版由 heti 接管） */
+.d-body, .d-summary, .article-content { font-size: 16px; line-height: 1.9; color: #2a2822; }
+
+/* ── 渐变清理：主要装饰渐变归纸色 ─────────────────────────── */
+.daily-topic-rank-1 { background: #f0ddd0 !important; border-color: #dfbba7 !important; }
+.back-top, .daily-share button { border-radius: 999px !important; }
+.daily-share button { background: var(--p-ink) !important; border-color: var(--p-ink) !important; }
+.daily-share button:hover { background: var(--p-accent) !important; border-color: var(--p-accent) !important; }
+.library-entry a:hover { border-color: var(--p-accent) !important; color: var(--p-ink) !important; }
+
+/* 简报卡片圆角对齐大档 */
+.daily-topic { border-radius: var(--p-r-l) !important; }
+.daily-focus { border-radius: var(--p-r-m) !important; }
+.daily-attention { border-radius: var(--p-r-l) !important; }

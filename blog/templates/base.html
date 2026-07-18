@@ -7,6 +7,8 @@
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/daily.css') }}">
+    <!-- 主题令牌层（方案A第一步）：最后加载、统一视觉；第二步下沉进 style.css 见 open-items -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme-tokens.css') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700;900&display=swap" rel="stylesheet">
     {% block extra_styles %}{% endblock %}
