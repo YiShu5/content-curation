@@ -87,6 +87,26 @@ def test_build_caption_assembles_title_body_tags():
     assert "#AI #日报" in caption  # tag 去掉多余#号、过滤空白
 
 
+def test_hot_board_never_leaks_aggregator_names_or_raw_metrics():
+    items = [
+        {"title": "大热点标题", "summary": "大热点的一句摘要。", "date": "07-18"},
+        {"title": "小热点甲", "summary": "甲摘要"},
+        {"title": "小热点乙", "summary": ""},
+    ]
+    board = xhs_card.hot_board_html(items, "07-18")
+    # 对外分享图的硬契约：绝不出现聚合源名与原始热度量纲
+    for leak in ("AI HOT", "AGI Hunt", "AGI HUNT", "agihunt", "aihot", "heat ", "讨论度"):
+        assert leak not in board, f"分享图泄漏了 {leak!r}"
+    assert "今日最热" in board and "还在热议" in board
+    assert "大热点标题" in board and "小热点甲" in board and "小热点乙" in board
+    assert "降噪 NoiseFilter" in board  # 自有品牌署名在
+
+
+def test_hot_board_tolerates_fewer_than_three():
+    one = xhs_card.hot_board_html([{"title": "只有一条", "summary": "s"}], "07-18")
+    assert "只有一条" in one and "还在热议" not in one  # 无小热点则不渲染该区
+
+
 def test_build_caption_returns_none_on_failure_or_empty():
     assert xhs_card.build_caption(issue_fixture(), chat=lambda p: (_ for _ in ()).throw(RuntimeError())) is None
     assert xhs_card.build_caption(issue_fixture(), chat=lambda p: {"title": "", "body": ""}) is None

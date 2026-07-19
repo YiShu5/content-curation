@@ -98,48 +98,65 @@ def _topic_html(topic, issue):
 </div>"""
 
 
-POSTER_W, POSTER_H = 1080, 1350   # 4:5，小红书/朋友圈通用
+POSTER_W, POSTER_H = 1080, 1440   # 3:4，三合一热点板
 
-def hot_poster_html(item):
-    """单条热点海报：品牌 + 来源标 + 大标题 + 一句摘要 + 热度脚注。
-    item = {title, summary, metric, source, date}。"""
-    title = html.escape(str(item.get("title") or ""))
-    summary = html.escape(str(item.get("summary") or ""))
-    metric = html.escape(str(item.get("metric") or ""))
-    source = html.escape(str(item.get("source") or ""))
-    date = html.escape(str(item.get("date") or ""))
-    summary_html = f'<div class=summary>{summary}</div>' if summary else ""
-    n = len(str(item.get("title") or ""))
-    title_size = 76 if n <= 16 else (64 if n <= 26 else 54)
+def hot_board_html(items, date_str=""):
+    """三合一热点板：1 大热点 + 2 小热点。对外分享图——**绝不出现聚合源名与原始热度数字**
+    （对内 triage 用飞书文字卡片，那里保留源与数字；两层受众不同）。
+    items = [{title, summary}]，第 1 条为大热点。"""
+    date = html.escape(str(date_str or ""))
+    big = items[0] if items else {}
+    smalls = items[1:3]
+    big_title = html.escape(str(big.get("title") or ""))
+    big_summary = html.escape(str(big.get("summary") or ""))
+    n = len(str(big.get("title") or ""))
+    big_size = 72 if n <= 16 else (60 if n <= 26 else 50)
+    big_sum_html = f'<div class=bigsum>{big_summary}</div>' if big_summary else ""
+    small_html = ""
+    if smalls:
+        rows = ""
+        for i, s in enumerate(smalls, 2):
+            t = html.escape(str(s.get("title") or ""))
+            su = html.escape(str(s.get("summary") or "")[:60])
+            su_html = f'<div class=ssum>{su}</div>' if su else ""
+            rows += f'<div class=srow><span class=snum>{i}</span><div><div class=stitle>{t}</div>{su_html}</div></div>'
+        small_html = f'<div class=divider></div><div class=slabel>还在热议</div>{rows}'
     poster_css = _BASE_CSS.replace(f"width:{XHS_W}px;height:{XHS_H}px", f"width:{POSTER_W}px;height:{POSTER_H}px")
     return f"""<!doctype html><meta charset=utf-8><style>{poster_css}
-.tag{{align-self:flex-start;font-size:26px;font-weight:800;color:#b85f42;
-  border:1px solid #dfbba7;border-radius:8px;padding:8px 20px;margin:70px 0 0}}
-.title{{font-size:{title_size}px;font-weight:900;line-height:1.28;letter-spacing:-.02em;margin:44px 0 0}}
-.summary{{font-size:34px;line-height:1.72;color:#3a382f;margin:40px 0 0}}
-.metric{{margin-top:auto;border-top:1px solid #ddd6cd;padding-top:34px;
-  font-size:30px;color:#7a766f}}
-.metric b{{color:#b85f42;font-weight:900}}
+.hdate{{margin-left:auto;font-size:26px;color:#7a766f}}
+.topbar{{display:flex;align-items:baseline}}
+.tag{{align-self:flex-start;font-size:26px;font-weight:900;color:#b85f42;
+  border:1.5px solid #dfbba7;border-radius:8px;padding:8px 20px;margin:64px 0 0;letter-spacing:.08em}}
+.bigtitle{{font-size:{big_size}px;font-weight:900;line-height:1.3;letter-spacing:-.02em;margin:36px 0 0}}
+.bigsum{{font-size:32px;line-height:1.72;color:#3a382f;margin:34px 0 0}}
+.divider{{border-top:1px solid #ddd6cd;margin:56px 0 0}}
+.slabel{{font-size:24px;font-weight:900;color:#8a532f;letter-spacing:.08em;margin:40px 0 8px}}
+.srow{{display:flex;gap:24px;align-items:flex-start;margin-top:34px}}
+.snum{{flex:none;display:inline-grid;place-items:center;width:46px;height:46px;border-radius:50%;
+  background:#181a1d;color:#fff;font-size:24px;font-weight:900}}
+.stitle{{font-size:36px;font-weight:700;line-height:1.4}}
+.ssum{{font-size:26px;line-height:1.6;color:#7a766f;margin-top:10px}}
+.foot{{margin-top:auto;padding-top:30px;border-top:1px solid #ddd6cd;font-size:24px;color:#7a766f}}
 </style>
 <div class=stage>
-  <div><span class=brand>降噪<small>NOISE FILTER</small></span></div>
-  <span class=tag>今日热点 · {source}</span>
-  <div class=title>{title}</div>
-  {summary_html}
-  <div class=metric><b>{metric}</b> · {date} · 降噪 NoiseFilter</div>
+  <div class=topbar><span class=brand>降噪<small>NOISE FILTER</small></span><span class=hdate>{date}</span></div>
+  <span class=tag>今日最热</span>
+  <div class=bigtitle>{big_title}</div>
+  {big_sum_html}
+  {small_html}
+  <div class=foot>综合公开讨论热度 · 降噪 NoiseFilter · 每天最多三条值得知道的</div>
 </div>"""
 
 
-def render_hot_posters(items, out_dir):
-    """渲染热点海报组。items=[{title,summary,metric,source,date}]，返回 [(路径, ok, err)]。"""
+def render_hot_board(items, out_dir):
+    """渲染三合一热点板（单图）。返回 [(路径, ok, err)]（保持列表接口）。"""
     out_dir = text_card.Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    results = []
-    for i, item in enumerate(items, 1):
-        png = out_dir / f"hot-{i:02d}.png"
-        ok, err = text_card._render_html_to_png(hot_poster_html(item), png, (POSTER_W, POSTER_H))
-        results.append((png, ok, err))
-    return results
+    png = out_dir / "hot-board.png"
+    ok, err = text_card._render_html_to_png(hot_board_html(items[:3],
+                                            items[0].get("date", "") if items else ""),
+                                            png, (POSTER_W, POSTER_H))
+    return [(png, ok, err)]
 
 
 def render_issue_cards(issue, out_dir):

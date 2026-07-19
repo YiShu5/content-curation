@@ -165,7 +165,8 @@ def send(card, text, webhook=None, post=None):
 
 
 def _featured_posters(rows_ai, rows_ag, aihot_raw, trends_raw, date_str):
-    """把前 3 张卡片对应的原始条目补上摘要，组装成海报 item。"""
+    """三合一热点板的素材：第 1 条为大热点。对外分享图**不带聚合源名与原始热度数字**
+    （那些留在对内的飞书文字卡片里）。"""
     def ai_summary(title):
         for i in aihot_raw:
             if str(i.get("title") or "") == title:
@@ -178,13 +179,8 @@ def _featured_posters(rows_ai, rows_ag, aihot_raw, trends_raw, date_str):
         return ""
     items = []
     for kind, r in _featured(rows_ai, rows_ag):
-        if kind == "aihot":
-            items.append({"title": r["title"], "summary": ai_summary(r["title"]),
-                          "metric": f"AI HOT 讨论度 {r['score']}", "source": r["source"] or "AI HOT",
-                          "date": date_str})
-        else:
-            items.append({"title": r["title"], "summary": ag_blurb(r["title"]),
-                          "metric": f"AGI Hunt heat {r['heat']}", "source": "AGI HUNT", "date": date_str})
+        summary = ai_summary(r["title"]) if kind == "aihot" else ag_blurb(r["title"])
+        items.append({"title": r["title"], "summary": summary, "date": date_str})
     return items
 
 
@@ -232,7 +228,7 @@ def send_posters(items, webhook=None, post=None, token_fn=None, upload_fn=None, 
         return 0
     import tempfile
     import xhs_card
-    render_fn = render_fn or xhs_card.render_hot_posters
+    render_fn = render_fn or xhs_card.render_hot_board
     upload_fn = upload_fn or _upload_image
     if post is None:
         import requests
@@ -256,7 +252,7 @@ def send_posters(items, webhook=None, post=None, token_fn=None, upload_fn=None, 
             else:
                 print(f"[materials] 发图被拒：{resp}", file=sys.stderr)
     if sent:
-        print(f"[materials] 已发送 {sent} 张热点海报")
+        print(f"[materials] 已发送三合一热点板（{sent} 张图）")
     return 0
 
 
