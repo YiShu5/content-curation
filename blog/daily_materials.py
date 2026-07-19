@@ -36,6 +36,10 @@ from hot_watch import fetch_agihunt_trends, _similar, _safe_score, _safe_heat  #
 TOP_N = int(os.getenv("MATERIALS_TOP_N", "10"))
 WEBHOOK = os.getenv("FEISHU_BOT_WEBHOOK", "")
 SECRET = os.getenv("FEISHU_BOT_SECRET", "")
+APP_ID = os.getenv("FEISHU_APP_ID", "")
+APP_SECRET = os.getenv("FEISHU_APP_SECRET", "")
+# 前 3 热点海报图默认开；缺 Chrome/app 凭据会自动降级只发文字盘，不空窗
+POSTERS_ENABLED = os.getenv("MATERIALS_POSTERS", "1") == "1"
 
 
 def collect(aihot_items, trends, top_n=TOP_N):
@@ -160,6 +164,102 @@ def send(card, text, webhook=None, post=None):
     return 1
 
 
+def _featured_posters(rows_ai, rows_ag, aihot_raw, trends_raw, date_str):
+    """把前 3 张卡片对应的原始条目补上摘要，组装成海报 item。"""
+    def ai_summary(title):
+        for i in aihot_raw:
+            if str(i.get("title") or "") == title:
+                return str(i.get("summary") or "")
+        return ""
+    def ag_blurb(title):
+        for t in trends_raw:
+            if str(t.get("term_zh") or t.get("term_en") or "") == title:
+                return str(t.get("blurb") or "")
+        return ""
+    items = []
+    for kind, r in _featured(rows_ai, rows_ag):
+        if kind == "aihot":
+            items.append({"title": r["title"], "summary": ai_summary(r["title"]),
+                          "metric": f"AI HOT 讨论度 {r['score']}", "source": r["source"] or "AI HOT",
+                          "date": date_str})
+        else:
+            items.append({"title": r["title"], "summary": ag_blurb(r["title"]),
+                          "metric": f"AGI Hunt heat {r['heat']}", "source": "AGI HUNT", "date": date_str})
+    return items
+
+
+def _tenant_token():
+    """用 app 凭据换 tenant_access_token（上传图片需要）。缺凭据返回 None。"""
+    if not (APP_ID and APP_SECRET):
+        return None
+    import requests
+    r = requests.post("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+                      json={"app_id": APP_ID, "app_secret": APP_SECRET}, timeout=15).json()
+    return r.get("tenant_access_token") if r.get("code") == 0 else None
+
+
+def _upload_image(token, png_path):
+    """上传图片换 image_key。返回 (image_key|None, 失败原因文本)。
+    网络异常重试一次（实测 open.feishu.cn 上传通道偶发握手超时）。"""
+    import time as _time
+    import requests
+    last_err = ""
+    for attempt in range(2):
+        try:
+            with open(png_path, "rb") as f:
+                r = requests.post("https://open.feishu.cn/open-apis/im/v1/images",
+                                  headers={"Authorization": f"Bearer {token}"},
+                                  data={"image_type": "message"}, files={"image": f},
+                                  timeout=60).json()
+            if r.get("code") == 0:
+                return (r.get("data") or {}).get("image_key"), ""
+            # API 明确拒绝（如 99991672 缺 im:resource:upload 权限）：重试无意义，原样透传
+            return None, f"code={r.get('code')} {str(r.get('msg'))[:180]}"
+        except Exception as exc:
+            last_err = f"网络异常: {type(exc).__name__} {str(exc)[:80]}"
+            _time.sleep(2)
+    return None, last_err
+
+
+def send_posters(items, webhook=None, post=None, token_fn=None, upload_fn=None, render_fn=None):
+    """渲染前 3 热点海报 → 上传 → webhook 发图。任一环节缺失就整体跳过（文字盘已发，绝不空窗）。"""
+    webhook = webhook or WEBHOOK
+    if not (POSTERS_ENABLED and webhook):
+        return 0
+    token = (token_fn or _tenant_token)()
+    if not token:
+        print("[materials] 无 app 凭据或换 token 失败，跳过海报图（文字盘已发）", file=sys.stderr)
+        return 0
+    import tempfile
+    import xhs_card
+    render_fn = render_fn or xhs_card.render_hot_posters
+    upload_fn = upload_fn or _upload_image
+    if post is None:
+        import requests
+        post = lambda url, payload: requests.post(url, json=payload, timeout=15).json()
+    sent = 0
+    with tempfile.TemporaryDirectory() as tmp:
+        for png, ok, err in render_fn(items, tmp):
+            if not ok:
+                print(f"[materials] 海报渲染失败（可能缺 Chrome）：{str(err)[:80]}", file=sys.stderr)
+                continue
+            key, upload_err = upload_fn(token, png)
+            if not key:
+                print(f"[materials] 图片上传失败：{upload_err}", file=sys.stderr)
+                if "99991672" in upload_err:
+                    print("[materials] → 需到飞书开放平台给应用开通 im:resource:upload 权限并发布版本",
+                          file=sys.stderr)
+                continue
+            resp = post(webhook, _signed_payload({"msg_type": "image", "content": {"image_key": key}}))
+            if (resp or {}).get("code") == 0:
+                sent += 1
+            else:
+                print(f"[materials] 发图被拒：{resp}", file=sys.stderr)
+    if sent:
+        print(f"[materials] 已发送 {sent} 张热点海报")
+    return 0
+
+
 def main(argv=None):
     args = sys.argv[1:] if argv is None else argv
     date_str = datetime.now(ZoneInfo(Config.BLOG_TIMEZONE)).strftime("%m-%d")
@@ -182,7 +282,10 @@ def main(argv=None):
     if "--dry-run" in args:
         print(text)
         return 0
-    return send(card, text)
+    rc = send(card, text)
+    # 文字盘发出后再发前 3 热点海报图（可发的图）；缺 Chrome/凭据会自动跳过
+    send_posters(_featured_posters(rows_ai, rows_ag, aihot, trends, date_str))
+    return rc
 
 
 if __name__ == "__main__":

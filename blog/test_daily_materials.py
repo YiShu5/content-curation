@@ -72,6 +72,45 @@ def test_send_no_webhook_is_noop():
     assert dm.send({}, "t", webhook="", post=lambda u, p: {"code": 0}) == 0
 
 
+def test_send_posters_uploads_and_posts_each_image():
+    from pathlib import Path as P
+    sent = []
+
+    def render(items, tmp):
+        out = []
+        for i in range(len(items)):
+            p = P(tmp) / f"hot-{i+1:02d}.png"
+            p.write_bytes(b"PNG")
+            out.append((p, True, ""))
+        return out
+
+    rc = dm.send_posters(
+        [{"title": "a"}, {"title": "b"}],
+        webhook="https://x",
+        post=lambda url, payload: (sent.append(payload), {"code": 0})[1],
+        token_fn=lambda: "tok",
+        upload_fn=lambda token, png: (f"key-{png.name}", ""),
+        render_fn=render,
+    )
+    assert rc == 0
+    assert [p["msg_type"] for p in sent] == ["image", "image"]
+    assert sent[0]["content"]["image_key"] == "key-hot-01.png"
+
+
+def test_send_posters_upload_failure_skips_gracefully():
+    def render(items, tmp):
+        from pathlib import Path as P
+        p = P(tmp) / "hot-01.png"
+        p.write_bytes(b"PNG")
+        return [(p, True, "")]
+
+    rc = dm.send_posters([{"title": "a"}], webhook="https://x",
+                         post=lambda u, p: {"code": 0}, token_fn=lambda: "tok",
+                         upload_fn=lambda t, p: (None, "code=99991672 缺权限"),
+                         render_fn=render)
+    assert rc == 0  # 上传失败只跳过，绝不让素材盘整体失败
+
+
 if __name__ == "__main__":
     tests = [v for n, v in sorted(globals().items()) if n.startswith("test_")]
     for t in tests:

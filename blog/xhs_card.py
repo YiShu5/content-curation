@@ -98,6 +98,50 @@ def _topic_html(topic, issue):
 </div>"""
 
 
+POSTER_W, POSTER_H = 1080, 1350   # 4:5，小红书/朋友圈通用
+
+def hot_poster_html(item):
+    """单条热点海报：品牌 + 来源标 + 大标题 + 一句摘要 + 热度脚注。
+    item = {title, summary, metric, source, date}。"""
+    title = html.escape(str(item.get("title") or ""))
+    summary = html.escape(str(item.get("summary") or ""))
+    metric = html.escape(str(item.get("metric") or ""))
+    source = html.escape(str(item.get("source") or ""))
+    date = html.escape(str(item.get("date") or ""))
+    summary_html = f'<div class=summary>{summary}</div>' if summary else ""
+    n = len(str(item.get("title") or ""))
+    title_size = 76 if n <= 16 else (64 if n <= 26 else 54)
+    poster_css = _BASE_CSS.replace(f"width:{XHS_W}px;height:{XHS_H}px", f"width:{POSTER_W}px;height:{POSTER_H}px")
+    return f"""<!doctype html><meta charset=utf-8><style>{poster_css}
+.tag{{align-self:flex-start;font-size:26px;font-weight:800;color:#b85f42;
+  border:1px solid #dfbba7;border-radius:8px;padding:8px 20px;margin:70px 0 0}}
+.title{{font-size:{title_size}px;font-weight:900;line-height:1.28;letter-spacing:-.02em;margin:44px 0 0}}
+.summary{{font-size:34px;line-height:1.72;color:#3a382f;margin:40px 0 0}}
+.metric{{margin-top:auto;border-top:1px solid #ddd6cd;padding-top:34px;
+  font-size:30px;color:#7a766f}}
+.metric b{{color:#b85f42;font-weight:900}}
+</style>
+<div class=stage>
+  <div><span class=brand>降噪<small>NOISE FILTER</small></span></div>
+  <span class=tag>今日热点 · {source}</span>
+  <div class=title>{title}</div>
+  {summary_html}
+  <div class=metric><b>{metric}</b> · {date} · 降噪 NoiseFilter</div>
+</div>"""
+
+
+def render_hot_posters(items, out_dir):
+    """渲染热点海报组。items=[{title,summary,metric,source,date}]，返回 [(路径, ok, err)]。"""
+    out_dir = text_card.Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    results = []
+    for i, item in enumerate(items, 1):
+        png = out_dir / f"hot-{i:02d}.png"
+        ok, err = text_card._render_html_to_png(hot_poster_html(item), png, (POSTER_W, POSTER_H))
+        results.append((png, ok, err))
+    return results
+
+
 def render_issue_cards(issue, out_dir):
     """把一期简报渲染成图组。返回 [(文件名, ok, err), ...]，封面卡在前。"""
     out_dir = text_card.Path(out_dir)
