@@ -8,7 +8,11 @@
   <header class="daily-masthead">
     <p class="daily-edition">{% if is_home and not is_current_day %}最新一期 · {% endif %}{{ issue.issue_date|replace('-', '.') }} · 第 {{ '%03d'|format(issue.issue_number) }} 期</p>
     <h1 id="dailyTitle">{% if is_current_day and is_home %}今天{% else %}这一天{% endif %}，哪些讨论值得知道？</h1>
+    {% if issue.main_line %}
+    <p class="daily-mainline"><span>{% if is_current_day and is_home %}今日主线{% else %}当日主线{% endif %}</span>{{ issue.main_line }}</p>
+    {% else %}
     <p>不是热搜榜。把重复消息合并后，只留下可能影响下一步判断的变化。</p>
+    {% endif %}
     <span>{% if issue.topics|length < 3 %}{% if is_current_day and is_home %}今天{% else %}这一天{% endif %}仅有 {{ issue.topics|length }} 个主题达到标准 · 不凑数{% else %}留下 3 个主题 · 不凑数{% endif %}{% if issue.revision > 1 %} · 最后修订 {{ issue.revised_at[11:16] }}{% endif %}</span>
   </header>
   <div class="daily-topic-grid daily-topic-count-{{ issue.topics|length }}">
@@ -16,6 +20,12 @@
       {% include "_daily_topic_card.html" %}
     {% endfor %}
   </div>
+  {% if issue.editor_note %}
+  <aside class="daily-editor-note" aria-label="主编手记">
+    <span class="daily-editor-note-label">主编手记<em>人工撰写</em></span>
+    <p>{{ issue.editor_note }}</p>
+  </aside>
+  {% endif %}
   {% else %}
   <div class="daily-empty">
     <h1 id="dailyTitle">还没有发布第一期</h1>

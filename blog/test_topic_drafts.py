@@ -217,6 +217,30 @@ def test_attention_split_is_disjoint_and_uses_supported_statuses():
     }
 
 
+def test_main_line_is_cleaned_truncated_and_defaults_empty():
+    from daily_issues import DAILY_TEXT_LIMITS
+
+    clusters = build_clusters(
+        [item("Only", "https://only.test/news", "Only")],
+        [{"member_indices": [1]}],
+    )
+    kwargs = dict(draft_date="2026-07-11", generated_at="2026-07-11 09:00", window_hours=48)
+    draft = build_daily_draft(
+        clusters,
+        {"topics": [editor_topic(1, "Only")], "main_line": "  今天的\n主线  "},
+        **kwargs,
+    )
+    assert draft["main_line"] == "今天的 主线"  # 压缩空白并去首尾
+    long = build_daily_draft(clusters, {"topics": [], "main_line": "长" * 99}, **kwargs)
+    assert len(long["main_line"]) == DAILY_TEXT_LIMITS["main_line_max"]
+    assert build_daily_draft(clusters, {"topics": []}, **kwargs)["main_line"] == ""
+    assert build_daily_draft(clusters, None, **kwargs)["main_line"] == ""
+    # LLM 形状漂移（非字符串）按空丢弃，不产出 repr 垃圾串
+    for drifted in (42, ["句一", "句二"], {"text": "句"}):
+        draft = build_daily_draft(clusters, {"topics": [], "main_line": drifted}, **kwargs)
+        assert draft["main_line"] == "", drifted
+
+
 def test_explicit_zero_limits_select_nothing():
     clusters = build_clusters(
         [item("Only", "https://only.test/news", "Only")],
@@ -247,5 +271,6 @@ if __name__ == "__main__":
     test_duplicate_model_cluster_selection_is_ignored_and_reranked()
     test_candidate_defaults_and_topic_aliases_come_from_trusted_cluster()
     test_attention_split_is_disjoint_and_uses_supported_statuses()
+    test_main_line_is_cleaned_truncated_and_defaults_empty()
     test_explicit_zero_limits_select_nothing()
     print("\n全部通过 ✅")

@@ -38,6 +38,8 @@ DAILY_TEXT_LIMITS = {
     "discussion_focus_item_max": 32,
     "why_ranked_max": 120,
     "missing_angle_max": 80,
+    "main_line_max": 48,
+    "editor_note_max": 300,
 }
 
 
@@ -76,6 +78,19 @@ _ISSUE_FIELDS = (
     "topics",
     "attention",
 )
+# 期刊级可选字段：main_line=今日主线（一句定调，可由主编 LLM 生成、admin 可改），
+# editor_note=主编手记（只走人工修订，机器永不写入）。空值省略键。
+_ISSUE_OPTIONAL_FIELDS = ("main_line", "editor_note")
+
+
+def _clean_issue_field(field, value):
+    # main_line 是单行语义：前端 input 挡不住直连 API 的换行，服务端统一折叠；
+    # editor_note 合法多行（textarea），保留内部换行
+    if field == "main_line" and isinstance(value, str):
+        value = re.sub(r"\s+", " ", value)
+    return _clean_limited_text(
+        value, field, DAILY_TEXT_LIMITS[f"{field}_max"], required=False
+    )
 
 
 def _clean_limited_text(value, field_name, limit, *, required):
@@ -120,6 +135,9 @@ def format_share_text(issue: dict, stable_url: str) -> str:
     issue_date = datetime.strptime(issue["issue_date"], "%Y-%m-%d")
     topics = issue.get("topics") or []
     lines = [f"降噪｜{issue_date.year} 年 {issue_date.month} 月 {issue_date.day} 日"]
+    main_line = str(issue.get("main_line") or "").strip()
+    if main_line:
+        lines.append(f"今日主线｜{main_line}")
     if len(topics) < 3:
         lines.append(f"本期仅有 {len(topics)} 个主题达到标准")
     else:
@@ -351,13 +369,15 @@ class DailyIssueStore:
         revised_at,
         previous_topics=None,
         status="published",
+        main_line="",
+        editor_note="",
     ):
         validated_topics, validated_attention = self._validated_content(
             topics,
             attention,
             previous_topics=previous_topics,
         )
-        return {
+        payload = {
             "schema_version": 1,
             "issue_date": issue_date,
             "issue_number": issue_number,
@@ -369,6 +389,11 @@ class DailyIssueStore:
             "topics": validated_topics,
             "attention": validated_attention,
         }
+        for field, value in (("main_line", main_line), ("editor_note", editor_note)):
+            cleaned = _clean_issue_field(field, value)
+            if cleaned:
+                payload[field] = cleaned
+        return payload
 
     def _validate_snapshot(
         self,
@@ -377,7 +402,11 @@ class DailyIssueStore:
         expected_date=None,
         expected_revision=None,
     ):
-        if not isinstance(payload, dict) or set(payload) != set(_ISSUE_FIELDS):
+        if (
+            not isinstance(payload, dict)
+            or not set(_ISSUE_FIELDS) <= set(payload)
+            or set(payload) - set(_ISSUE_FIELDS) - set(_ISSUE_OPTIONAL_FIELDS)
+        ):
             raise DailyIssueValidationError("期刊快照结构无效")
         if payload["schema_version"] != 1 or payload["status"] != "published":
             raise DailyIssueValidationError("期刊快照版本或状态无效")
@@ -407,6 +436,12 @@ class DailyIssueStore:
         )
         if topics != payload["topics"] or attention != payload["attention"]:
             raise DailyIssueValidationError("期刊内容结构无效")
+        for field in _ISSUE_OPTIONAL_FIELDS:
+            if field in payload:
+                cleaned = _clean_issue_field(field, payload[field])
+                # 空值必须省略键、存盘必须等于清洗结果（逐字节 round-trip 契约）
+                if not cleaned or cleaned != payload[field]:
+                    raise DailyIssueValidationError("期刊内容结构无效")
         return payload
 
     def _read_snapshot(self, path, *, expected_date=None, expected_revision=None):
@@ -526,7 +561,7 @@ class DailyIssueStore:
             issues = self.list_issues()
             return max((issue["issue_number"] for issue in issues), default=0) + 1
 
-    def preview(self, issue_date, topics, attention, *, now):
+    def preview(self, issue_date, topics, attention, *, now, main_line="", editor_note=""):
         issue_date = validate_issue_date(issue_date)
         with _STORE_LOCK:
             self._assert_integrity()
@@ -552,9 +587,11 @@ class DailyIssueStore:
                 revised_at=stamp,
                 previous_topics=previous_topics,
                 status="preview",
+                main_line=main_line,
+                editor_note=editor_note,
             )
 
-    def publish(self, issue_date, topics, attention, *, now):
+    def publish(self, issue_date, topics, attention, *, now, main_line="", editor_note=""):
         issue_date = validate_issue_date(issue_date)
         with self._exclusive_write_lock():
             self._assert_integrity()
@@ -569,6 +606,8 @@ class DailyIssueStore:
                 revision=1,
                 published_at=stamp,
                 revised_at=stamp,
+                main_line=main_line,
+                editor_note=editor_note,
             )
             _atomic_write_json(self._issue_path(issue_date), issue)
             return issue
@@ -581,6 +620,8 @@ class DailyIssueStore:
         *,
         expected_revision,
         now,
+        main_line="",
+        editor_note="",
     ):
         issue_date = validate_issue_date(issue_date)
         with self._exclusive_write_lock():
@@ -597,6 +638,8 @@ class DailyIssueStore:
                 published_at=current["published_at"],
                 revised_at=now.isoformat(),
                 previous_topics=current["topics"],
+                main_line=main_line,
+                editor_note=editor_note,
             )
             _atomic_write_json(
                 self._revision_path(issue_date, current["revision"]),

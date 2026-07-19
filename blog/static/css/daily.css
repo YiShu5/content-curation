@@ -22,6 +22,14 @@ body.daily-page .container { max-width: 1180px; }
 .daily-masthead h1 { max-width: 740px; margin: 6px 0 6px; font: 900 30px/1.12 var(--font-serif); letter-spacing: -.05em; }
 .daily-masthead > p:not(.daily-edition) { display: inline; margin: 0; color: #62605c; font-size: 13px; line-height: 1.6; }
 .daily-masthead > span { display: inline-block; margin-left: 10px; padding: 4px 9px; border: 1px solid #d8d2ca; border-radius: 999px; color: #77736d; background: rgba(255,255,255,.42); font-size: 10px; font-weight: 700; vertical-align: 1px; }
+/* 今日主线：主编定调，一句话；占位与默认副标题一致，保住首屏高度 */
+.daily-mainline { font-weight: 700; color: #3a382f !important; }
+.daily-mainline span { margin-right: 8px; padding: 2px 7px; border-radius: 5px; background: #b85f42; color: #fff; font-size: 10px; font-weight: 900; letter-spacing: .08em; vertical-align: 1px; }
+/* 主编手记：唯一的人工署名区，与机器生成内容明确区隔 */
+.daily-editor-note { max-width: 720px; margin: 4px 28px 18px; padding: 13px 16px; border-left: 2px solid #b85f42; background: rgba(255,253,250,.6); }
+.daily-editor-note-label { display: block; margin-bottom: 5px; color: #9b4b30; font-size: 10px; font-weight: 900; letter-spacing: .08em; }
+.daily-editor-note-label em { margin-left: 8px; padding: 1px 6px; border: 1px solid #dfbba7; border-radius: 999px; color: #8a532f; font-style: normal; font-weight: 750; }
+.daily-editor-note p { margin: 0; color: #3a382f; font-size: 13px; line-height: 1.7; white-space: pre-line; }
 .daily-topic-grid { display: grid; grid-template-columns: minmax(0, 1.44fr) minmax(280px, .8fr); gap: 10px; padding: 14px 0 16px; }
 .daily-topic { min-width: 0; border: 1px solid #ddd6cd; border-radius: 15px; background: #fffdfa; padding: 14px; box-shadow: 0 7px 24px rgba(42,37,31,.035); }
 .daily-topic-rank-1 { grid-column: 1; grid-row: 1 / span 2; display: flex; flex-direction: column; padding: 18px; background: #f0ddd0; border-color: #dfbba7; }
@@ -89,6 +97,7 @@ body.daily-page .container { max-width: 1180px; }
   .daily-masthead h1 { font-size: 32px; }
   .daily-topic-grid, .daily-topic-count-2 { grid-template-columns: 1fr; padding: 18px; }
   .daily-topic-rank-1, .daily-topic-rank-2, .daily-topic-rank-3 { grid-column: 1; grid-row: auto; min-height: 0; }
+  .daily-editor-note { margin: 4px 18px 16px; }
   .daily-attention { margin: 0 18px; }
   .daily-attention-list { grid-template-columns: 1fr; }
   .daily-share { margin: 14px 18px 28px; }

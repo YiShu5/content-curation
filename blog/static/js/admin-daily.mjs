@@ -18,7 +18,20 @@ const state = {
   revision: null,
   selected: [],
   candidates: [],
+  mainLine: '',
+  editorNote: '',
 };
+
+const mainLineInput = document.getElementById('dailyMainLine');
+const editorNoteInput = document.getElementById('dailyEditorNote');
+mainLineInput.maxLength = limits.main_line_max;
+editorNoteInput.maxLength = limits.editor_note_max;
+mainLineInput.addEventListener('input', () => { state.mainLine = mainLineInput.value; validateEditor(); });
+editorNoteInput.addEventListener('input', () => { state.editorNote = editorNoteInput.value; validateEditor(); });
+
+function issueFieldPayload() {
+  return { main_line: state.mainLine.trim(), editor_note: state.editorNote.trim() };
+}
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -174,6 +187,8 @@ function validateEditor() {
   const blocking = [];
   const warnings = [];
   if (state.selected.length < 1 || state.selected.length > 3) blocking.push('请保留 1–3 个主题');
+  if (state.mainLine.trim().length > limits.main_line_max) blocking.push('今日主线过长');
+  if (state.editorNote.trim().length > limits.editor_note_max) blocking.push('主编手记过长');
   state.selected.forEach((topic, index) => {
     const required = [['标题', topic.title, limits.title_max], ['核心事实', topic.what_happened, limits.what_happened_max], ['编辑判断', topic.why_ranked, limits.why_ranked_max]];
     required.forEach(([name, value, max]) => { if (!value.trim() || value.length > max) blocking.push(`第 ${index + 1} 条${name}无效`); });
@@ -205,6 +220,11 @@ function loadDraft(message = '') {
     state.candidates = [...(body.draft.candidates || []), ...(body.draft.attention || [])]
       .filter((item) => !selectedIds.has(item.topic_id)).map(rowState);
     state.revision = body.published ? body.published.revision : null;
+    // 修订沿用线上现值；首次发布主线取今日草稿（主编 LLM 的定调），手记始终人工起笔
+    state.mainLine = body.published ? (body.published.main_line || '') : (body.draft.main_line || '');
+    state.editorNote = body.published ? (body.published.editor_note || '') : '';
+    mainLineInput.value = state.mainLine;
+    editorNoteInput.value = state.editorNote;
     document.getElementById('dailyAdminMeta').textContent = [
       body.issue_meta.issue_date,
       `第 ${String(body.issue_meta.issue_number).padStart(3, '0')} 期`,
@@ -225,7 +245,7 @@ document.getElementById('dailyCandidateAdd').addEventListener('click', () => {
 document.getElementById('dailyPreviewButton').addEventListener('click', () => {
   if (!validateEditor()) return;
   requestJson(`/admin/daily/${encodeURIComponent(state.issueDate)}/preview`, {
-    method: 'POST', body: JSON.stringify({ topics: state.selected.map(rowPayload), preview_surface: state.previewSurface }),
+    method: 'POST', body: JSON.stringify({ topics: state.selected.map(rowPayload), preview_surface: state.previewSurface, ...issueFieldPayload() }),
   }).then((body) => {
     const frame = document.createElement('iframe');
     frame.title = '读者页面预览'; frame.sandbox = ''; frame.srcdoc = body.html;
@@ -235,13 +255,29 @@ document.getElementById('dailyPreviewButton').addEventListener('click', () => {
 publishButton.addEventListener('click', () => {
   if (!validateEditor()) return;
   publishButton.disabled = true;
-  const payload = { topics: state.selected.map(rowPayload) };
+  const payload = { topics: state.selected.map(rowPayload), ...issueFieldPayload() };
   if (state.action === 'revise') payload.expected_revision = state.revision;
   requestJson(`/admin/daily/${encodeURIComponent(state.issueDate)}/${state.action}`, { method: 'POST', body: JSON.stringify(payload) })
     .then((body) => { window.location.assign(body.redirect_url); })
     .catch((error) => {
       if (error.status === 409 && error.body.code === 'already_published') {
-        return loadDraft('本期已发布，已切换为修订').catch(showError);
+        // 撞上 auto-publish 的竞态：loadDraft 会用服务端值覆盖输入框，
+        // 而服务端此刻必然没有手记（机器不写手记）——保住管理员刚打的字
+        const typedLine = state.mainLine;
+        const typedNote = state.editorNote;
+        return loadDraft('本期已发布，已切换为修订').then(() => {
+          const kept = [];
+          if (typedNote.trim() && typedNote.trim() !== state.editorNote.trim()) {
+            state.editorNote = typedNote; editorNoteInput.value = typedNote; kept.push('主编手记');
+          }
+          if (typedLine.trim() && typedLine.trim() !== state.mainLine.trim()) {
+            state.mainLine = typedLine; mainLineInput.value = typedLine; kept.push('今日主线');
+          }
+          if (kept.length) {
+            stateMessage.textContent = `本期已被自动发布，已切换为修订；你刚填写的${kept.join('和')}已保留，确认后请保存修订`;
+            stateMessage.className = 'daily-admin-warning';
+          }
+        }).catch(showError);
       } else showError(error);
     }).finally(() => validateEditor());
 });

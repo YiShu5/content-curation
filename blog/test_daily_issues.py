@@ -3,6 +3,7 @@
 Run: blog/.venv/bin/python blog/test_daily_issues.py
 """
 
+import json
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -909,6 +910,82 @@ def test_two_store_revisions_use_flock_and_only_one_accepts_stale_revision():
         assert flock_operations.count(daily_issues.fcntl.LOCK_UN) == 2
 
 
+def test_issue_level_fields_round_trip_and_omit_empty():
+    with TemporaryDirectory() as tmp:
+        store = DailyIssueStore(Path(tmp), "America/Los_Angeles")
+        now = datetime.fromisoformat("2026-07-11T09:00:00-07:00")
+        issue = store.publish("2026-07-11", [topic()], [], now=now,
+                              main_line="  今天都在\n围绕算力展开  ", editor_note="")
+        assert issue["main_line"] == "今天都在 围绕算力展开"  # 单行语义：内部换行折叠
+        assert "editor_note" not in issue  # 空值省略键
+        assert store.get("2026-07-11")["main_line"] == "今天都在 围绕算力展开"
+        revised = store.revise("2026-07-11", [topic()], [], expected_revision=1,
+                               now=now, main_line="", editor_note="人工补的一段手记。\n第二段保留换行。")
+        assert "main_line" not in revised  # 显式传空 = 清除键
+        assert revised["editor_note"] == "人工补的一段手记。\n第二段保留换行。"  # 手记合法多行
+        assert store.get("2026-07-11")["editor_note"] == revised["editor_note"]
+        # 修订历史里的 r01 也必须能通过快照校验（可选字段向前兼容）
+        assert store.get("2026-07-11", fallback_revision=True)["revision"] == 2
+
+
+def test_issue_level_fields_reject_overlength_and_non_text():
+    with TemporaryDirectory() as tmp:
+        store = DailyIssueStore(Path(tmp), "America/Los_Angeles")
+        now = datetime.fromisoformat("2026-07-11T09:00:00-07:00")
+        for kwargs in (
+            {"main_line": "长" * (DAILY_TEXT_LIMITS["main_line_max"] + 1)},
+            {"editor_note": "长" * (DAILY_TEXT_LIMITS["editor_note_max"] + 1)},
+            {"main_line": 123},
+        ):
+            try:
+                store.publish("2026-07-11", [topic()], [], now=now, **kwargs)
+            except DailyIssueValidationError:
+                pass
+            else:
+                raise AssertionError(f"expected rejection: {kwargs}")
+        assert store.get("2026-07-11") is None  # 全部被拒，没有半成品落盘
+
+
+def test_snapshot_optional_field_must_match_cleaned_value_or_be_absent():
+    # 逐字节 round-trip 契约：可选字段存盘值必须等于清洗结果；空值必须省键
+    with TemporaryDirectory() as tmp:
+        store = DailyIssueStore(Path(tmp), "America/Los_Angeles")
+        now = datetime.fromisoformat("2026-07-11T09:00:00-07:00")
+        store.publish("2026-07-11", [topic()], [], now=now, main_line="正常主线")
+        path = Path(tmp) / "2026-07-11.json"
+        good = json.loads(path.read_text(encoding="utf-8"))
+        assert store.get("2026-07-11", fallback_revision=False)["main_line"] == "正常主线"
+        for mutate in (
+            lambda p: p.__setitem__("main_line", " 带空格的主线 "),
+            lambda p: p.__setitem__("main_line", "换\n行主线"),
+            lambda p: p.__setitem__("main_line", ""),
+            lambda p: p.__setitem__("editor_note", 42),
+            lambda p: p.__setitem__("surprise", "未知字段仍然拒绝"),
+        ):
+            bad = json.loads(json.dumps(good))
+            mutate(bad)
+            path.write_text(json.dumps(bad, ensure_ascii=False, indent=2),
+                            encoding="utf-8")
+            try:
+                store.get("2026-07-11", fallback_revision=False)
+            except DailyIssueCorrupt:
+                pass
+            else:
+                raise AssertionError(f"expected corrupt snapshot: {bad.keys()}")
+
+
+def test_share_text_leads_with_main_line_only_when_present():
+    url = "https://noise.example/daily/2026-07-11"
+    with_line = format_share_text(
+        {"issue_date": "2026-07-11", "main_line": "都在等 agent 落地", "topics": [topic()]},
+        url,
+    )
+    assert "今日主线｜都在等 agent 落地" in with_line
+    assert with_line.splitlines()[0].startswith("降噪｜")  # 品牌行仍在最前
+    without = format_share_text({"issue_date": "2026-07-11", "topics": [topic()]}, url)
+    assert "今日主线" not in without
+
+
 if __name__ == "__main__":
     test_publish_latest_and_revise_keep_number_and_archive_old_revision()
     test_revision_conflict_does_not_overwrite_current_issue()
@@ -939,4 +1016,8 @@ if __name__ == "__main__":
     test_issue_number_advances_only_for_new_dates_and_latest_sorts_by_date()
     test_failed_atomic_replace_leaves_previous_current_issue_loadable()
     test_two_store_revisions_use_flock_and_only_one_accepts_stale_revision()
+    test_issue_level_fields_round_trip_and_omit_empty()
+    test_issue_level_fields_reject_overlength_and_non_text()
+    test_snapshot_optional_field_must_match_cleaned_value_or_be_absent()
+    test_share_text_leads_with_main_line_only_when_present()
     print("全部通过 ✅")

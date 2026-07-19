@@ -362,23 +362,41 @@ def _editor_request(issue_date, action):
             return {"status": "unavailable"}, 409
         selected = daily_editor.apply_selection(draft, body.get("topics"))
         attention = _selected_attention(draft, selected)
+
+        # 期刊级字段：请求缺键=继承（已发布沿用现值；首发主线取草稿、手记为空），
+        # 显式传空字符串=清除。手记只来自人工输入，机器路径永不写。
+        def _issue_field(field):
+            value = body.get(field)
+            if value is None:
+                if published:
+                    return str(published.get(field) or "")
+                return str(draft.get(field) or "") if field == "main_line" else ""
+            if not isinstance(value, str):
+                raise DailyIssueValidationError(f"{field} 必须为文本")
+            return value
+
+        main_line = _issue_field("main_line")
+        editor_note = _issue_field("editor_note")
         if action == "preview":
             surface = body.get("preview_surface")
             if surface not in {"home", "dated"}:
                 return {"status": "bad_request", "message": "preview_surface 无效"}, 400
-            issue = store.preview(issue_date, selected, attention, now=_local_now())
+            issue = store.preview(issue_date, selected, attention, now=_local_now(),
+                                  main_line=main_line, editor_note=editor_note)
             rendered = render_template("_daily_brief.html", issue=issue, daily_error="",
                                        is_home=surface == "home", is_current_day=issue_date == today)
             return {"status": "ok", "html": rendered}
         if action == "publish":
-            issue = store.publish(issue_date, selected, attention, now=_local_now())
+            issue = store.publish(issue_date, selected, attention, now=_local_now(),
+                                  main_line=main_line, editor_note=editor_note)
             status_code, event_kind = 201, "publish"
         else:
             expected = body.get("expected_revision")
             if isinstance(expected, bool) or not isinstance(expected, int):
                 return {"status": "bad_request", "message": "expected_revision 必须为整数"}, 400
             issue = store.revise(issue_date, selected, attention,
-                                 expected_revision=expected, now=_local_now())
+                                 expected_revision=expected, now=_local_now(),
+                                 main_line=main_line, editor_note=editor_note)
             status_code, event_kind = 200, "revise"
         audit_status = "ok"
         try:

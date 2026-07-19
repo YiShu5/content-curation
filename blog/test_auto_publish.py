@@ -115,6 +115,22 @@ def test_stale_draft_returns_alert_code():
         assert store.get(TODAY) is None
 
 
+def test_main_line_flows_to_issue_and_message_stays_single_line():
+    with TemporaryDirectory() as tmp:
+        cache = cache_fixture(topics=[topic("topic-a", 1)])
+        cache["daily_draft"]["main_line"] = "都在等 agent 落地"
+        code, message, store, _ = run(cache, tmp)
+        assert code == 0
+        assert store.get(TODAY)["main_line"] == "都在等 agent 落地"
+        assert "主线：都在等 agent 落地" in message
+        assert "\n" not in message  # run.sh 按行 grep [auto-publish]，禁止换行
+    with TemporaryDirectory() as tmp:
+        code, message, store, _ = run(cache_fixture(topics=[topic("topic-a", 1)]), tmp)
+        assert code == 0
+        assert "主线" not in message  # 无主线不渲染空标签
+        assert "main_line" not in store.get(TODAY)  # 空值省略键
+
+
 def test_evidence_gate_blocks_unverified_only_topic():
     topics = [topic("topic-a", 1, source_status="unchecked")]
     with TemporaryDirectory() as tmp:
