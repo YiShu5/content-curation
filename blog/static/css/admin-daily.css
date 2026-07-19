@@ -15,6 +15,8 @@
 .daily-admin-meta, .daily-admin-revision, .daily-admin-shell > [role="status"], .daily-admin-add { margin: 1rem 1.25rem; }
 .daily-admin-error { color: #a22d25; font-weight: 700; }
 .daily-admin-warning { color: #805700; }
+.daily-admin-issue-fields { display: grid; gap: .85rem; margin: 0 1.25rem 1rem; padding: 1rem; border: 1px solid #b9b5aa; background: #fff; }
+.daily-admin-issue-fields textarea { min-height: 3.6rem; }
 .daily-admin-rows { display: grid; gap: 1rem; padding: 0 1.25rem; }
 .daily-admin-row { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; padding: 1.2rem; border: 1px solid #b9b5aa; background: #fff; box-shadow: 4px 4px 0 #dceef8; }
 .daily-admin-rank { position: absolute; top: -.65rem; left: -.65rem; display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; color: #fff; background: #17191c; }

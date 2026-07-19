@@ -43,7 +43,8 @@ def auto_publish(*, cache, store, editor_log, now):
     rows = [{"topic_id": row["topic_id"]} for row in topics[:3]]
     selected = daily_editor.apply_selection(draft, rows)
     attention = _selected_attention(draft, selected)
-    issue = store.publish(today, selected, attention, now=now)
+    main_line = str(draft.get("main_line") or "").strip()
+    issue = store.publish(today, selected, attention, main_line=main_line, now=now)
     audit = "ok"
     try:
         daily_editor.append_editor_event(editor_log, {
@@ -54,9 +55,11 @@ def auto_publish(*, cache, store, editor_log, now):
         }, now=now)
     except Exception:
         audit = "failed"  # 与手动发布一致：发布已成立，审计失败只标记不回滚
+    # 主线拼进单行消息（run.sh 按行 grep [auto-publish]，不能换行）
+    line_note = f"｜主线：{issue['main_line']}" if issue.get("main_line") else ""
     return 0, (
         f"已发布 {today} · 第 {issue['issue_number']:03d} 期 · "
-        f"{len(selected)} 条主题（审计:{audit}）"
+        f"{len(selected)} 条主题（审计:{audit}）{line_note}"
     )
 
 

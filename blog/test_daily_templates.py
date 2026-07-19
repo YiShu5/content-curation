@@ -145,6 +145,23 @@ def test_missing_angle_renders_on_lead_card_only_and_tolerates_old_snapshots():
     assert "还没人说清的是" not in old
 
 
+def test_main_line_replaces_boilerplate_and_editor_note_marks_human():
+    issue = issue_fixture(topic_count=3)
+    issue["main_line"] = "都在围绕算力展开"
+    issue["editor_note"] = "我自己的一段判断。"
+    html = render_brief(issue)
+    assert "今日主线" in html and "都在围绕算力展开" in html
+    assert "不是热搜榜" not in html  # 主线出现时替换固定副标题，不叠加占位
+    assert "主编手记" in html and "人工撰写" in html and "我自己的一段判断。" in html
+    # 旧快照没有这两个字段 → 默认文案、无手记块、不报错
+    old = render_brief(issue_fixture(topic_count=3))
+    assert "不是热搜榜" in old
+    assert "主编手记" not in old
+    # 非当日归档语境用「当日主线」措辞
+    dated = render_brief(issue, is_home=False, is_current_day=False)
+    assert "当日主线" in dated
+
+
 if __name__ == "__main__":
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     for test in tests:

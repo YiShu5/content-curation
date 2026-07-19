@@ -212,6 +212,24 @@ def test_unrecoverable_dated_issue_is_friendly_503_not_404():
     assert "DailyIssueCorrupt" not in html
 
 
+def test_main_line_and_editor_note_render_on_home_and_dated_pages():
+    with issue_client() as (client, store, _):
+        store.publish(
+            "2026-07-11",
+            [topic("带主线主题")],
+            [attention()],
+            now=datetime.fromisoformat("2026-07-11T09:00:00-07:00"),
+            main_line="都在围绕算力展开",
+            editor_note="一段人工手记。",
+        )
+        home = client.get("/").get_data(as_text=True)
+        dated = client.get("/daily/2026-07-11").get_data(as_text=True)
+    assert "今日主线" in home and "都在围绕算力展开" in home
+    assert "不是热搜榜" not in home  # 主线替换固定副标题，不叠加
+    assert "主编手记" in home and "一段人工手记。" in home
+    assert "当日主线" in dated and "都在围绕算力展开" in dated
+
+
 def test_only_corrupt_first_issue_is_not_misreported_as_never_published():
     with issue_client() as (client, store, _):
         publish_fixture(store, "2026-07-11", "唯一一期")

@@ -4,6 +4,8 @@ import hashlib
 import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from daily_issues import DAILY_TEXT_LIMITS
+
 
 DROP_QUERY_KEYS = {"fbclid", "gclid", "ref", "source"}
 
@@ -382,11 +384,19 @@ def build_daily_draft(
         for source in (cluster.get("sources") or [])
         if isinstance(source, dict) and source.get("source_id")
     }
+    raw_main_line = (
+        (editor_payload or {}).get("main_line")
+        if isinstance(editor_payload, dict) else ""
+    )
+    if not isinstance(raw_main_line, str):
+        raw_main_line = ""  # LLM 形状漂移（列表/字典）按空丢弃，否则 repr 垃圾会直达自动发布
     return {
         "schema_version": 1,
         "draft_date": str(draft_date or ""),
         "generated_at": str(generated_at or ""),
         "window_hours": _safe_int(window_hours),
+        # 今日主线：主编 LLM 的跨主题定调，一句话；允许为空（宁缺毋滥）
+        "main_line": _clean_text(raw_main_line)[:DAILY_TEXT_LIMITS["main_line_max"]],
         "topics": topics,
         "candidates": candidates,
         "attention": [],

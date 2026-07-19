@@ -19,6 +19,12 @@
     {% if current_revision %}<p class="daily-admin-revision">当前修订 {{ current_revision }}</p>{% endif %}
     <p id="dailyAdminMeta" class="daily-admin-meta"></p>
     <p id="dailyAdminState" role="status">正在读取今日候选…</p>
+    <div class="daily-admin-issue-fields">
+      <label class="daily-admin-field"><span>今日主线（横跨几条主题的一句定调，可空）</span>
+        <input id="dailyMainLine" type="text"></label>
+      <label class="daily-admin-field"><span>主编手记（人工撰写、署名“人工”，可空）</span>
+        <textarea id="dailyEditorNote"></textarea></label>
+    </div>
     <div id="dailyAdminRows" class="daily-admin-rows"></div>
     <label class="daily-admin-add">替换 / 补充候选
       <select id="dailyCandidateSelect"><option value="">选择候选</option></select>
