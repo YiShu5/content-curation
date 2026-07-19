@@ -142,6 +142,25 @@ def test_hot_board_never_leaks_aggregator_names_or_raw_metrics():
     assert "今日最热" in board and "还在热议" in board
     assert "大热点标题" in board and "小热点甲" in board and "小热点乙" in board
     assert "降噪 NoiseFilter" in board  # 自有品牌署名在
+    assert "速览未逐条核验" in board  # 诚实标注：海报判断与简报证据链不同层
+
+
+def test_soft_clip_never_breaks_mid_word_or_mid_paren():
+    # 短红框 bug 的回归：绝不出现「模型族（60」这种断裂
+    text = "支持 16 个 ASR 模型族（60 多个模型），并提供跨平台构建与量化选项，安装很简单"
+    clipped = xhs_card._soft_clip(text, 26)
+    assert clipped == "支持 16 个 ASR 模型族（60 多个模型）…"  # 停在完整括号后
+    ends_sentence = xhs_card._soft_clip("第一句说完了。第二句还很长很长很长很长很长", 12)
+    assert ends_sentence == "第一句说完了。"  # 停在句号则原样收尾
+    assert xhs_card._soft_clip("不需要截断的短句", 26) == "不需要截断的短句"
+    no_punct = xhs_card._soft_clip("连" * 40, 10)
+    assert no_punct == "连" * 10 + "…"  # 无句读兜底硬切+省略号
+    board = xhs_card.hot_board_html([
+        {"title": "大", "summary": "第一句。第二句" + "长" * 100},
+        {"title": "小", "summary": "支持 16 个 ASR 模型族（60 多个模型）" + "尾" * 60},
+    ], "07-19")
+    assert "（60 多个模型）" in board  # 括号完整保留，不再有半开断裂
+    assert "尾" * 40 not in board  # 超长部分确实被截掉了
 
 
 def test_hot_board_tolerates_fewer_than_three():

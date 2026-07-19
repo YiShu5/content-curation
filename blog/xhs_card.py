@@ -13,6 +13,24 @@ import today_signal
 
 XHS_W, XHS_H = 1242, 1656   # 小红书标准 3:4 竖版
 
+
+def _soft_clip(text, limit):
+    """限长截断，尽量停在句读处——绝不在词或括号中间硬断（那会让读者觉得图是坏的）。
+    停在句号类标点则原样收尾；停在逗号类则以省略号提示还有后文。"""
+    text = str(text or "").strip()
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    for i in range(len(head) - 1, limit // 2 - 1, -1):
+        ch = head[i]
+        if ch in "。！？":
+            return head[:i + 1]
+        if ch in "）)」』":
+            return head[:i + 1] + "…"  # 闭括号保留，绝不留半开括号
+        if ch in "；;，,、":
+            return head[:i] + "…"
+    return head + "…"
+
 # 纸墨编辑部视觉：与站点同语言（纸底 #f7f3ed / 墨字 / 陶土 #b85f42 单强调）
 _BASE_CSS = f"""html,body{{margin:0}}
 .stage{{width:{XHS_W}px;height:{XHS_H}px;position:relative;overflow:hidden;box-sizing:border-box;
@@ -73,19 +91,15 @@ def _overview_html(issue):
     main_html = (f'<div class=mainline style="font-size:{main_size}px">{main_line}</div>'
                  if main_line else "")
 
-    def _clip(text, limit):
-        text = str(text or "")
-        return text[:limit] + ("…" if len(text) > limit else "")
-
     # 画布 1656px 固定高、overflow:hidden——三条均顶满字段上限时必须仍放得下，
-    # 所以速览行的一句话结论按 60 字预算截断（截断带省略号，深读走主题卡）
+    # 所以速览行的一句话结论按 60 字预算截断（句读边界收尾，深读走主题卡）
     rows = "".join(
         f'<div class=row><span class=rank>{t.get("rank")}</span><div>'
         f'<div class=rt>{html.escape(t.get("title") or "")}</div>'
-        f'<div class=rw>{html.escape(_clip(t.get("what_happened"), 60))}</div></div></div>'
+        f'<div class=rw>{html.escape(_soft_clip(t.get("what_happened"), 60))}</div></div></div>'
         for t in topics[:3]
     )
-    note = html.escape(_clip(issue.get("editor_note"), 110))
+    note = html.escape(_soft_clip(issue.get("editor_note"), 110))
     note_html = (f'<div class=note><span>主编手记 · 人工</span>{note}</div>'
                  if note else "")
     return f"""<!doctype html><meta charset=utf-8><style>{_BASE_CSS}
@@ -165,7 +179,7 @@ def hot_board_html(items, date_str=""):
     big = items[0] if items else {}
     smalls = items[1:3]
     big_title = html.escape(str(big.get("title") or ""))
-    big_summary = html.escape(str(big.get("summary") or ""))
+    big_summary = html.escape(_soft_clip(big.get("summary"), 78))
     n = len(str(big.get("title") or ""))
     big_size = 72 if n <= 16 else (60 if n <= 26 else 50)
     big_sum_html = f'<div class=bigsum>{big_summary}</div>' if big_summary else ""
@@ -174,7 +188,7 @@ def hot_board_html(items, date_str=""):
         rows = ""
         for i, s in enumerate(smalls, 2):
             t = html.escape(str(s.get("title") or ""))
-            su = html.escape(str(s.get("summary") or "")[:60])
+            su = html.escape(_soft_clip(s.get("summary"), 54))
             su_html = f'<div class=ssum>{su}</div>' if su else ""
             rows += f'<div class=srow><span class=snum>{i}</span><div><div class=stitle>{t}</div>{su_html}</div></div>'
         small_html = f'<div class=divider></div><div class=slabel>还在热议</div>{rows}'
@@ -201,7 +215,7 @@ def hot_board_html(items, date_str=""):
   <div class=bigtitle>{big_title}</div>
   {big_sum_html}
   {small_html}
-  <div class=foot>综合公开讨论热度 · 降噪 NoiseFilter · 每天最多三条值得知道的</div>
+  <div class=foot>综合公开讨论热度 · 速览未逐条核验 · 降噪 NoiseFilter</div>
 </div>"""
 
 

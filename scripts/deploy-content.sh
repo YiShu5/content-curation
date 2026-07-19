@@ -10,8 +10,14 @@ cd "$(dirname "$0")/.."
 
 DEPLOY_SSH_HOST=$(grep -E '^DEPLOY_SSH_HOST=' config/.env | head -1 | cut -d= -f2-)
 DEPLOY_REMOTE_DIR=$(grep -E '^DEPLOY_REMOTE_DIR=' config/.env | head -1 | cut -d= -f2-)
+DEPLOY_SSH_KEY=$(grep -E '^DEPLOY_SSH_KEY=' config/.env | head -1 | cut -d= -f2-) || true
 : "${DEPLOY_SSH_HOST:?config/.env 缺 DEPLOY_SSH_HOST}"
 : "${DEPLOY_REMOTE_DIR:?config/.env 缺 DEPLOY_REMOTE_DIR}"
+# 可选：非默认命名的私钥（如 Codex 部署时生成的），免去改 ~/.ssh/config
+RSYNC_SSH="ssh"
+if [ -n "$DEPLOY_SSH_KEY" ]; then
+  RSYNC_SSH="ssh -i ${DEPLOY_SSH_KEY/#\~/$HOME} -o IdentitiesOnly=yes"
+fi
 
 # 防呆闸门：本地 archive 异常（如被误删）时拒绝镜像，避免 --delete 把服务器也清空
 complete_count=$(grep -l '"rewrite_complete": true' archive/*/metadata.json 2>/dev/null | wc -l | tr -d ' ')
@@ -21,14 +27,14 @@ if [ "$complete_count" -lt 5 ]; then
 fi
 
 echo "[deploy-content] 同步 archive（$complete_count 条成品）→ $DEPLOY_SSH_HOST:$DEPLOY_REMOTE_DIR"
-rsync -az --delete \
+rsync -az --delete -e "$RSYNC_SSH" \
   --exclude '_duplicates_quarantine' \
   archive/ "$DEPLOY_SSH_HOST:$DEPLOY_REMOTE_DIR/archive/"
 
-rsync -az blog/data/embeddings.json "$DEPLOY_SSH_HOST:$DEPLOY_REMOTE_DIR/blog/data/embeddings.json"
+rsync -az -e "$RSYNC_SSH" blog/data/embeddings.json "$DEPLOY_SSH_HOST:$DEPLOY_REMOTE_DIR/blog/data/embeddings.json"
 
 if [ -d blog/data/transcript_chunks ]; then
-  rsync -az blog/data/transcript_chunks/ "$DEPLOY_SSH_HOST:$DEPLOY_REMOTE_DIR/blog/data/transcript_chunks/"
+  rsync -az -e "$RSYNC_SSH" blog/data/transcript_chunks/ "$DEPLOY_SSH_HOST:$DEPLOY_REMOTE_DIR/blog/data/transcript_chunks/"
 fi
 
 echo "[deploy-content] 完成"

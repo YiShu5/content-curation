@@ -112,9 +112,13 @@ case "$CMD" in
       # 第九个 Agent：终审官（提醒模式）——只附带 ✅/⚠️ 结论行；诊断走 stderr 进 cron 日志，不再丢弃
       if [ -x "blog/.venv/bin/python" ]; then review_py="blog/.venv/bin/python"; else review_py="python"; fi
       review_line=$("$review_py" blog/issue_review.py | grep -E '^\[issue-review\] (✅|⚠️)' | tail -1 | sed 's/^\[issue-review\] //') || true
+      # 手记习惯回路：机器发布成功时提醒补人工手记（手记只能在发布后经修订写入）
+      note_line=""
+      case "$brief_summary" in *已发布*) note_line="✍️ 手记还空着，读完顺手写一段 → https://www.yishucc.top/admin/login" ;; esac
       ./scripts/notify-feishu.sh "✅ 降噪日报 $(date '+%m-%d')
 ${brief_summary:-signals 完成}${review_line:+
-${review_line}}" || true
+${review_line}}${note_line:+
+${note_line}}" || true
     else
       ./scripts/notify-feishu.sh "❌ 降噪日报 $(date '+%m-%d') 失败
 ${brief_summary:-$(echo "$brief_out" | tail -2)}" || true

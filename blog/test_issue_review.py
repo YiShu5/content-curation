@@ -76,6 +76,23 @@ def test_prompt_declares_advisory_conservatism():
     assert "宁静默毋噪音" in _REVIEW_PROMPT
 
 
+def test_main_line_enters_prompt_and_absence_is_explicit():
+    captured = {}
+
+    def chat(prompt):
+        captured["prompt"] = prompt
+        return {"verdict": "pass", "notes": []}
+
+    issue = issue_fixture()
+    issue["main_line"] = "都在围绕算力展开"
+    run_review(issue, [], [], chat=chat)
+    assert "【今日主线】" in captured["prompt"]
+    assert "都在围绕算力展开" in captured["prompt"]
+    assert "主线检查" in captured["prompt"]  # 第三条职责在
+    run_review(issue_fixture(), [], [], chat=chat)  # 旧快照无主线字段
+    assert "本期无主线，跳过主线检查" in captured["prompt"]
+
+
 if __name__ == "__main__":
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     for test in tests:
