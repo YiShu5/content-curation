@@ -33,7 +33,7 @@ from config import Config  # noqa: E402
 from today_signal import fetch_aihot  # noqa: E402
 from hot_watch import fetch_agihunt_trends, _similar, _safe_score, _safe_heat  # noqa: E402
 
-TOP_N = int(os.getenv("MATERIALS_TOP_N", "10"))
+TOP_N = int(os.getenv("MATERIALS_TOP_N", "5"))
 WEBHOOK = os.getenv("FEISHU_BOT_WEBHOOK", "")
 SECRET = os.getenv("FEISHU_BOT_SECRET", "")
 APP_ID = os.getenv("FEISHU_APP_ID", "")
